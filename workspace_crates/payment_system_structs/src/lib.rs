@@ -1,9 +1,9 @@
 #[derive(serde::Serialize)]
 pub struct NewInvoiceRequest {
-    invoice_id: String,
-    method: String,
-    amount_atomic: u64,
-    token: String,
+    pub invoice_id: String,
+    pub method: String,
+    pub amount_atomic: u64,
+    pub token: String,
 }
 
 #[derive(serde::Deserialize)]
