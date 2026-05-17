@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 
-use git_version::git_version;
 use server::http_stuff::http_response::ok_html;
 
 
@@ -12,14 +11,14 @@ async fn main() -> std::io::Result<()> {
         .await
         .expect("I expected pool construction to succeed :)");
     let handler: server::run::HandlerFn =
-        std::sync::Arc::new(move |request_data, server_config| {
-            let db_pool = db_pool.clone();
-            let service_config = service_config.clone();
+        std::sync::Arc::new(move |_request_data, _server_config| {
+            let _db_pool = db_pool.clone();
+            let _service_config = service_config.clone();
             Box::pin(async move {
                 ok_html("<b>Hello world</b>".to_string())
             })
         });
-    server::run(handler, app_executabl).await
+    server::run(handler, app_executable_version::get()).await
 }
 
 #[derive(Debug, Clone, serde::Deserialize)]

@@ -18,6 +18,7 @@ members = ["workspace_crates/*"]
 
 
 [workspace.dependencies]
+app_executable_version = { path =  "workspace_crates/app_executable_version" }
 main = { path =  "workspace_crates/main" }
 tokio = { version = "1.52.3", features = ["full", "macros", "net", "rt-multi-thread", "time", "tokio-macros", "tracing"] }
 server = { git = "ssh://git@github.com/Aeroel/server_2_only.git"}

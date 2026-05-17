@@ -4,6 +4,6 @@ pub const VERSION: &str = git_version!(args = ["--tags", "--abbrev=0"]); /*  inc
 just --tags shows some sort of hash at the end.
 --abbrev being set to 0 is necessary to return only the tag.
 */
-pub fn get() -> &str {
-    VERSION
+pub fn get() -> String {
+    VERSION.to_string()
 }
