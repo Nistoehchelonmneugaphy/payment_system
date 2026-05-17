@@ -4,6 +4,8 @@ pub struct NewInvoiceRequest {
     pub method: String,
     pub amount_atomic: u64,
     pub token: String,
+    pub success_callback: String,
+    pub status_update_callback: String,
 }
 
 #[derive(serde::Deserialize)]
