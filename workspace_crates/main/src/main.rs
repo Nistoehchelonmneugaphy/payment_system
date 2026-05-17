@@ -6,14 +6,14 @@ use server::http_stuff::http_response::ok_html;
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> std::io::Result<()> {
     dotenvy::dotenv().ok();
-    let service_config = server::config_reader::read_config::<PaymentSystemConfig>(PathBuf::from(".env"));
-    let db_pool = sqlx::PgPool::connect(&service_config.database_url)
+    let payment_system = server::config_reader::read_config::<PaymentSystemConfig>(PathBuf::from(".env"));
+    let db_pool = sqlx::PgPool::connect(&payment_system.database_url)
         .await
         .expect("I expected pool construction to succeed :)");
     let handler: server::run::HandlerFn =
         std::sync::Arc::new(move |_request_data, _server_config| {
             let _db_pool = db_pool.clone();
-            let _service_config = service_config.clone();
+            let _payment_system_config = payment_system.clone();
             Box::pin(async move {
                 ok_html("<b>Hello world</b>".to_string())
             })
