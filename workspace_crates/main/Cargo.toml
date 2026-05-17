@@ -1,0 +1,13 @@
+[package]
+name = "main"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+tokio = { workspace = true }
+dotenvy = { workspace = true }
+server = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+git-version = { workspace = true }
+app_executable_version = { workspace = true }
