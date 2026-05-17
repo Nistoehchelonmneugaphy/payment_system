@@ -14,3 +14,55 @@ pub struct NewInvoiceResponse {
     pub amount: String,
     pub method: String,
 }
+
+
+pub struct PaymentInfo {
+    pub amount: Amount,
+    pub address: Address,
+    pub method: Method,
+}
+pub struct Address {
+    inner: String,
+}
+impl Address {
+    pub fn from(s: String) -> Self {
+        Self {
+            inner: s.to_string(),
+        }
+    }
+}
+impl std::fmt::Display for Address {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+pub struct Amount {
+    inner: String,
+}
+impl Amount {
+    pub fn from(s: String) -> Self {
+        Self {
+            inner: s.to_string(),
+        }
+    }
+}
+impl std::fmt::Display for Amount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}
+pub struct Method {
+    inner: String,
+}
+impl Method {
+    pub fn from(s: String) -> Self {
+        Self {
+            inner: s.to_string(),
+        }
+    }
+}
+impl std::fmt::Display for Method {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.inner)
+    }
+}

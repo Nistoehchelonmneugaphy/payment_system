@@ -12,7 +12,7 @@ CREATE TABLE invoice_payment_data (
     method                  TEXT          NOT NULL,
     address                 TEXT          NOT NULL,
     amount                  TEXT          NOT NULL,
-    created_at              TIMESTAMPTZ   NOT NULL  DEFAULT NOW()
+    created_at              TIMESTAMPTZ   NOT NULL  DEFAULT NOW(),
     completed_at            TIMESTAMPTZ   NULL
 );
 
