@@ -8,8 +8,9 @@ pub struct NewInvoiceRequest {
     pub status_update_callback: String,
 }
 
+/// Sent in response to invoice creation
 #[derive(serde::Deserialize)]
-pub struct PaymentInfoResponse {
+pub struct PaymentInfo {
     pub amount: Amount,
     pub address: Address,
     pub method: Method,
