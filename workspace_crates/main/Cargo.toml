@@ -5,9 +5,14 @@ edition = "2024"
 
 [dependencies]
 tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 dotenvy = { workspace = true }
 server = { workspace = true }
-serde = { workspace = true }
 sqlx = { workspace = true }
 git-version = { workspace = true }
 app_executable_version = { workspace = true }
+subtle = { workspace = true }
+strum = { workspace = true }
+anyhow = { workspace = true }
+payment_system_structs = { workspace = true }

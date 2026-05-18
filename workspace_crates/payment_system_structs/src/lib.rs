@@ -1,4 +1,15 @@
-#[derive(serde::Serialize)]
+use strum::EnumString;
+
+#[derive(EnumString)]
+#[strum(ascii_case_insensitive)]
+pub enum PaymentMethod {
+    #[strum(serialize = "litecoin", serialize = "ltc")]
+    Litecoin,
+    #[strum(serialize = "monero", serialize = "xmr")]
+    Monero,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct NewInvoiceRequest {
     pub invoice_id: String,
     pub method: String,
@@ -9,60 +20,36 @@ pub struct NewInvoiceRequest {
 }
 
 /// Sent in response to invoice creation
-#[derive(serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct PaymentInfo {
     pub amount: Amount,
     pub address: Address,
     pub method: Method,
 }
 
-#[derive(serde::Deserialize)]
-pub struct Address {
-    inner: String,
-}
-impl Address {
-    pub fn from(s: String) -> Self {
-        Self {
-            inner: s.to_string(),
-        }
-    }
-}
-impl std::fmt::Display for Address {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
-#[derive(serde::Deserialize)]
-pub struct Amount {
-    inner: String,
-}
-impl Amount {
-    pub fn from(s: String) -> Self {
-        Self {
-            inner: s.to_string(),
-        }
-    }
-}
 
-impl std::fmt::Display for Amount {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
+// let's play around with macro_rules!
 
+macro_rules! string_newtype {
+    ($($name:ident),*) => {
+        $(
+            #[derive(serde::Serialize, serde::Deserialize)]
+            pub struct $name {
+                inner: String,
+            }
+
+            impl $name {
+                pub fn from(s: impl Into<String>) -> Self {
+                    Self { inner: s.into() }
+                }
+            }
+
+            impl std::fmt::Display for $name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "{}", self.inner)
+                }
+            }
+        )*
+    };
 }
-#[derive(serde::Deserialize)]
-pub struct Method {
-    inner: String,
-}
-impl Method {
-    pub fn from(s: String) -> Self {
-        Self {
-            inner: s.to_string(),
-        }
-    }
-}
-impl std::fmt::Display for Method {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.inner)
-    }
-}
+string_newtype!(Address, Amount, Method);

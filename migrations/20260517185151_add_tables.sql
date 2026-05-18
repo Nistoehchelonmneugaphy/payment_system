@@ -10,7 +10,7 @@ CREATE TABLE invoice_payment_data (
     status_update_callback  TEXT          NOT NULL,
     success_callback        TEXT          NOT NULL,
     method                  TEXT          NOT NULL,
-    address                 TEXT          NOT NULL,
+    generated_address       TEXT          NOT NULL,
     amount                  TEXT          NOT NULL,
     created_at              TIMESTAMPTZ   NOT NULL  DEFAULT NOW(),
     completed_at            TIMESTAMPTZ   NULL
