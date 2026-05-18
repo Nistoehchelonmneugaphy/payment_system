@@ -9,18 +9,13 @@ pub struct NewInvoiceRequest {
 }
 
 #[derive(serde::Deserialize)]
-pub struct NewInvoiceResponse {
-    pub address: String,
-    pub amount: String,
-    pub method: String,
-}
-
-
-pub struct PaymentInfo {
+pub struct PaymentInfoResponse {
     pub amount: Amount,
     pub address: Address,
     pub method: Method,
 }
+
+#[derive(serde::Deserialize)]
 pub struct Address {
     inner: String,
 }
@@ -36,6 +31,7 @@ impl std::fmt::Display for Address {
         write!(f, "{}", self.inner)
     }
 }
+#[derive(serde::Deserialize)]
 pub struct Amount {
     inner: String,
 }
@@ -46,11 +42,14 @@ impl Amount {
         }
     }
 }
+
 impl std::fmt::Display for Amount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.inner)
     }
+
 }
+#[derive(serde::Deserialize)]
 pub struct Method {
     inner: String,
 }
