@@ -308,7 +308,7 @@ async fn dynamic_address_generation(
 }
 
 pub fn derive_ltc_wallet_address(master_seed: &str, index: u64) -> Result<String, String> {
-    todo!();
+   todo!();
 }
 fn parse_path(path: &str) -> Option<(&str, &str)> {
     // strips leading '/' then splits on the next '/'
