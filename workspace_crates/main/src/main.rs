@@ -195,7 +195,7 @@ async fn poll_payments(db_pool: sqlx::PgPool, payment_system_config: PaymentSyst
                             continue;
                         }
                         let Ok(headers) =
-                            CallbackHeaders::fetch(&mut *tx, &invoice.invoice_id).await
+                            fetch_callback_headers(&mut *tx, &invoice.invoice_id).await
                         else {
                             continue;
                         };
@@ -216,6 +216,21 @@ async fn poll_payments(db_pool: sqlx::PgPool, payment_system_config: PaymentSyst
         }
         tokio::time::sleep(Duration::from_mins(5)).await;
     }
+}
+
+async fn fetch_callback_headers(conn: &mut PgConnection, invoice_id: &str) -> Result<CallbackHeaders, String> {
+    let Ok(rows) = sqlx::query!(
+        "SELECT key, value FROM callback_headers WHERE invoice_id = $1",
+        invoice_id
+    )
+    .fetch_all(conn)
+    .await
+    else {
+        return Err(format!("DB err"));
+    };
+
+    let map = rows.into_iter().map(|r| (r.key, r.value)).collect();
+    Ok(CallbackHeaders(map))
 }
 async fn deny_if_too_many_active_invoices(
     tx: &mut Transaction<'_, Postgres>,
@@ -273,7 +288,9 @@ async fn validate_token(
     Ok(token)
 }
 
-use cryptocurrencies_stuff::{derive_ltc::derive_ltc_bip84_address, monero_wallet_rpc::monero_create_subaddress};
+use cryptocurrencies_stuff::{
+    derive_ltc::derive_ltc_bip84_address, monero_wallet_rpc::monero_create_subaddress,
+};
 use payment_system_structs::{
     Address, AddressIndex, CallbackHeaders, NewInvoiceRequest, PaymentMethod,
 };
@@ -322,7 +339,6 @@ async fn dynamic_address_generation(
     };
     Ok((AddressIndex(index), Address(address)))
 }
-
 
 fn parse_path(path: &str) -> Option<(&str, &str)> {
     // strips leading '/' then splits on the next '/'

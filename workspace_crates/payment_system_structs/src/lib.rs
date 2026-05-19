@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use sqlx::PgConnection;
 use strum::EnumString;
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, EnumString, strum::Display)]
@@ -24,22 +23,6 @@ pub struct NewInvoiceRequest {
 
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct CallbackHeaders(pub HashMap<String, String>);
-
-impl CallbackHeaders {
-    pub async fn fetch(conn: &mut PgConnection, invoice_id: &str) -> Result<Self, String> {
-        let Ok(rows) = sqlx::query!(
-            "SELECT key, value FROM callback_headers WHERE invoice_id = $1",
-            invoice_id
-        )
-        .fetch_all(conn)
-        .await else {
-            return Err(format!("DB err"));
-        };
-
-        let map = rows.into_iter().map(|r| (r.key, r.value)).collect();
-        Ok(Self(map))
-    }
-}
 
 /// Sent in response to invoice creation
 #[derive(serde::Serialize, serde::Deserialize)]
