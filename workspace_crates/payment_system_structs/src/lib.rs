@@ -24,32 +24,13 @@ pub struct NewInvoiceRequest {
 pub struct PaymentInfo {
     pub amount: Amount,
     pub address: Address,
-    pub method: Method,
+    pub method: PaymentMethod,
 }
 
 
-// let's play around with macro_rules!
-
-macro_rules! string_newtype {
-    ($($name:ident),*) => {
-        $(
-            #[derive(serde::Serialize, serde::Deserialize)]
-            pub struct $name {
-                inner: String,
-            }
-
-            impl $name {
-                pub fn from(s: impl Into<String>) -> Self {
-                    Self { inner: s.into() }
-                }
-            }
-
-            impl std::fmt::Display for $name {
-                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-                    write!(f, "{}", self.inner)
-                }
-            }
-        )*
-    };
-}
-string_newtype!(Address, Amount, Method);
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, derive_more::Display, derive_more::From, derive_more::Into)]
+pub struct Address(String);
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, derive_more::Display, derive_more::From, derive_more::Into)]
+pub struct Amount(String);
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, derive_more::Display, derive_more::From, derive_more::Into)]
+pub struct AddressIndex(u64);

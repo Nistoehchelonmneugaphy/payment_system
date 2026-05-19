@@ -15,3 +15,7 @@ app_executable_version = { workspace = true }
 strum = { workspace = true }
 anyhow = { workspace = true }
 payment_system_structs = { workspace = true }
+derive_more = { workspace = true }
+reqwest = { workspace = true }
+chrono = { workspace = true }
+tracing = { workspace = true }
