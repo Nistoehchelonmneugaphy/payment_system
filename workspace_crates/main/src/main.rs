@@ -25,7 +25,7 @@ async fn main() -> anyhow::Result<()> {
                 let Some((prefix, method_str)) = parse_path("/secretprefix/new_payment") else {
                     return server::http_stuff::http_response::bad_request_400();
                 };
-                if !time_safe_eq(prefix, &payment_system_config.secret_prefix) {
+                if prefix != payment_system_config.secret_prefix {
                     return server::http_stuff::http_response::bad_request_400();
                 }
                 let method = or_400!(APIMethod::from_str(method_str));
@@ -59,13 +59,7 @@ pub enum APIMethod {
 fn dynamic_address_generation(m: PaymentMethod) -> Result<String, String> {
 todo!();
 }
-use subtle::ConstantTimeEq;
 
-// For fun. Ensures every single byte is compared
-// Nvm. In description of ct_eq it says it circuits if contents are different
-fn time_safe_eq(a: &str, b: &str) -> bool {
-    a.as_bytes().ct_eq(b.as_bytes()).into()
-}
 
 fn parse_path(path: &str) -> Option<(&str, &str)> {
     // strips leading '/' then splits on the next '/'
