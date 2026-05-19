@@ -1,6 +1,7 @@
+
 use strum::EnumString;
 
-#[derive(EnumString)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, EnumString, strum::Display)]
 #[strum(ascii_case_insensitive)]
 pub enum PaymentMethod {
     #[strum(serialize = "litecoin", serialize = "ltc")]
@@ -12,9 +13,8 @@ pub enum PaymentMethod {
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct NewInvoiceRequest {
     pub invoice_id: String,
-    pub method: String,
+    pub method: PaymentMethod,
     pub amount_atomic: u64,
-    pub token: String,
     pub success_callback: String,
     pub status_update_callback: String,
 }

@@ -34,9 +34,9 @@ async fn main() -> anyhow::Result<()> {
                         let req = or_400!(serde_json::from_slice::<NewInvoiceRequest>(
                             &request_data.body_bytes,
                         ));
-                        let address = or_400!(dynamic_address_generation(or_400!(req.method.parse())));
+                        let address = or_400!(dynamic_address_generation(req.method.clone()));
                         let mut tx = or_400!(db_pool.begin().await);
-                        or_400!(sqlx::query!("INSERT INTO invoice_payment_data (invoice_id, status_update_callback, success_callback, method, generated_address, amount) VALUES($1, $2, $3, $4, $5, $6)", req.invoice_id, req.status_update_callback,  req.success_callback,  req.method, address, req.amount_atomic.to_string()).execute(&mut *tx).await);
+                        or_400!(sqlx::query!("INSERT INTO invoice_payment_data (invoice_id, status_update_callback, success_callback, method, generated_address, amount) VALUES($1, $2, $3, $4, $5, $6)", req.invoice_id, req.status_update_callback,  req.success_callback,  req.method.to_string(), address, req.amount_atomic.to_string()).execute(&mut *tx).await);
                         or_400!(tx.commit().await);
                     }
                 }
