@@ -14,6 +14,14 @@ CREATE TABLE invoice_payment_data (
     address_index           TEXT          NOT NULL,
     amount                  TEXT          NOT NULL,
     created_at              TIMESTAMPTZ   NOT NULL  DEFAULT NOW(),
-    completed_at            TIMESTAMPTZ   NULL
+    completed_at            TIMESTAMPTZ   NULL,
+    sweeped_at              TIMESTAMPTZ  NULL, 
 );
 
+
+CREATE TABLE callback_headers (
+    id bigserial PRIMARY KEY,
+    invoice_id text NOT NULL,
+    key text NOT NULL,
+    value text NOT NULL
+);

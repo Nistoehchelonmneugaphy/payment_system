@@ -1447,9 +1447,11 @@ checksum = "df94ce210e5bc13cb6651479fa48d14f601d9858cfe0467f43ae157023b938d3"
 name = "payment_system_structs"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "derive_more",
  "serde",
  "serde_json",
+ "sqlx",
  "strum",
 ]
 

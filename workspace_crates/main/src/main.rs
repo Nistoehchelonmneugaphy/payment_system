@@ -62,8 +62,11 @@ async fn main() -> anyhow::Result<()> {
                         let req = ok_or_400!(serde_json::from_slice::<NewInvoiceRequest>(
                             &request_data.body_bytes,
                         ));
-                        let (index, address) =
-                            ok_or_400!(dynamic_address_generation(req.method.clone()));
+                        let (index, address) = ok_or_400!(dynamic_address_generation(
+                            &mut *tx,
+                            &payment_system_config.clone(),
+                            &req.method.clone()
+                        ).await);
 
                         ok_or_400!(sqlx::query!("INSERT INTO invoice_payment_data (invoice_id, status_update_callback, success_callback, method, generated_address, address_index, amount) VALUES($1, $2, $3, $4, $5, $6, $7)", req.invoice_id, req.status_update_callback,  req.success_callback,  req.method.to_string(), address.to_string(), index.to_string(), req.amount_atomic.to_string()).execute(&mut *tx).await);
                     }
@@ -89,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-struct InvoicePaymentData {
+pub struct InvoicePaymentData {
     pub primary_key: i64,
     pub invoice_id: String,
     pub status_update_callback: String,
@@ -149,6 +152,7 @@ async fn poll_payments(db_pool: sqlx::PgPool, payment_system_config: PaymentSyst
     };
 
     loop {
+        let db_pool = db_pool.clone();
         let invoices = sqlx::query_as!(
             InvoicePaymentData,
             "SELECT * FROM invoice_payment_data  WHERE completed_at IS NULL
@@ -166,6 +170,9 @@ async fn poll_payments(db_pool: sqlx::PgPool, payment_system_config: PaymentSyst
                     else {
                         continue;
                     };
+                    let Ok(mut tx) = db_pool.begin().await else {
+                        continue;
+                    };
                     if paid {
                         let result = sqlx::query!(
                             "UPDATE invoice_payment_data 
@@ -174,7 +181,7 @@ async fn poll_payments(db_pool: sqlx::PgPool, payment_system_config: PaymentSyst
                              AND completed_at IS NULL", // guard against double update
                             &invoice.invoice_id
                         )
-                        .execute(&db_pool)
+                        .execute(&mut *tx)
                         .await;
                         if result.is_err() {
                             tracing::error!(
@@ -183,14 +190,20 @@ async fn poll_payments(db_pool: sqlx::PgPool, payment_system_config: PaymentSyst
                             );
                             continue;
                         }
-                        let _ = rpc
-                            .post(invoice.success_callback)
-                            .header(
-                                &payment_system_config.cf_bypass_token_header_name.clone(),
-                                &payment_system_config.cf_bypass_token_header_value.clone(),
-                            )
-                            .send()
-                            .await;
+                        let Ok(headers) =
+                            CallbackHeaders::fetch(&mut *tx, &invoice.invoice_id).await
+                        else {
+                            continue;
+                        };
+
+                        let mut request = rpc.post(&invoice.success_callback);
+
+                        for (key, value) in &headers.0 {
+                            request = request.header(key, value);
+                        }
+
+                        let _ = request.send().await;
+                        let _ = tx.commit().await;
                     }
                 }
                 _ => continue,
@@ -256,12 +269,14 @@ async fn validate_token(
     Ok(token)
 }
 
-use payment_system_structs::{Address, AddressIndex, NewInvoiceRequest, PaymentMethod};
+use payment_system_structs::{
+    Address, AddressIndex, CallbackHeaders, NewInvoiceRequest, PaymentMethod,
+};
 use server::http_stuff::{
     http_request_parsing::Headers,
     http_response::{HttpResponseData, bad_request_400},
 };
-use sqlx::{Postgres, Transaction, postgres::types::PgInterval};
+use sqlx::{PgConnection, Postgres, Transaction, postgres::types::PgInterval};
 use strum::EnumString;
 
 #[derive(EnumString)]
@@ -270,10 +285,31 @@ pub enum APIMethod {
     NewInvoice,
 }
 
-fn dynamic_address_generation(m: PaymentMethod) -> Result<(AddressIndex, Address), String> {
-    todo!();
+async fn dynamic_address_generation(
+    conn: &mut PgConnection,
+    psc: &PaymentSystemConfig,
+    m: &PaymentMethod,
+) -> Result<(AddressIndex, Address), String> {
+    match m {
+        PaymentMethod::Litecoin => {
+            let Ok(Some(index)) = sqlx::query_scalar!(
+                "SELECT COUNT(*) FROM invoice_payment_data WHERE method = 'litecoin'",
+            )
+            .fetch_one(conn)
+            .await else { return Err(format!("..."))};
+            let index = index as u64;
+            let Ok(address) = derive_ltc_wallet_address(&psc.master_seed, index) else {
+                return Err(format!("Coul'nd derive"));
+            };
+            Ok((AddressIndex(index), Address(address)))
+        }
+        PaymentMethod::Monero => todo!(),
+    }
 }
 
+pub fn derive_ltc_wallet_address(master_seed: &str, index: u64) -> Result<String, String> {
+    todo!();
+}
 fn parse_path(path: &str) -> Option<(&str, &str)> {
     // strips leading '/' then splits on the next '/'
     let path = path.strip_prefix('/')?;
@@ -290,6 +326,7 @@ pub struct PaymentSystemConfig {
     // limit monitoring load
     pub max_active_invoices: u64,
     pub active_invoice_minutes_since_creation: u64,
+    pub master_seed: String,
     pub cf_bypass_token_header_name: String,
     pub cf_bypass_token_header_value: String,
 }
