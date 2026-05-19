@@ -273,7 +273,7 @@ async fn validate_token(
     Ok(token)
 }
 
-use cryptocurrencies_stuff::derive_ltc::derive_ltc_bip84_address;
+use cryptocurrencies_stuff::{derive_ltc::derive_ltc_bip84_address, monero_wallet_rpc::monero_create_subaddress};
 use payment_system_structs::{
     Address, AddressIndex, CallbackHeaders, NewInvoiceRequest, PaymentMethod,
 };
@@ -323,39 +323,7 @@ async fn dynamic_address_generation(
     Ok((AddressIndex(index), Address(address)))
 }
 
-/// Calls monero-wallet-rpc to get (or create) the subaddress at account 0, index N.
-/// The RPC deterministically returns the same address for the same index,
-/// so it's safe to call with an existing index too.
-async fn monero_create_subaddress(rpc_url: &str) -> Result<String, String> {
-    let client = reqwest::Client::new();
 
-    let body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "0",
-        "method": "create_address",
-        "params": {
-            "account_index": 0,
-            "count": 1,
-        }
-    });
-
-    let resp = client
-        .post(rpc_url)
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| format!("Monero RPC request failed: {e}"))?
-        .json::<serde_json::Value>()
-        .await
-        .map_err(|e| format!("Monero RPC parse failed: {e}"))?;
-
-    let address = resp["result"]["addresses"][0]["address"]
-        .as_str()
-        .ok_or_else(|| format!("Unexpected RPC response: {resp}"))?
-        .to_string();
-
-    Ok(address)
-}
 fn parse_path(path: &str) -> Option<(&str, &str)> {
     // strips leading '/' then splits on the next '/'
     let path = path.strip_prefix('/')?;
