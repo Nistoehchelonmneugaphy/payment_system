@@ -62,11 +62,14 @@ async fn main() -> anyhow::Result<()> {
                         let req = ok_or_400!(serde_json::from_slice::<NewInvoiceRequest>(
                             &request_data.body_bytes,
                         ));
-                        let (index, address) = ok_or_400!(dynamic_address_generation(
-                            &mut *tx,
-                            &payment_system_config.clone(),
-                            &req.method.clone()
-                        ).await);
+                        let (index, address) = ok_or_400!(
+                            dynamic_address_generation(
+                                &mut *tx,
+                                &payment_system_config.clone(),
+                                &req.method.clone()
+                            )
+                            .await
+                        );
 
                         ok_or_400!(sqlx::query!("INSERT INTO invoice_payment_data (invoice_id, status_update_callback, success_callback, method, generated_address, address_index, amount) VALUES($1, $2, $3, $4, $5, $6, $7)", req.invoice_id, req.status_update_callback,  req.success_callback,  req.method.to_string(), address.to_string(), index.to_string(), req.amount_atomic.to_string()).execute(&mut *tx).await);
                     }
@@ -292,24 +295,67 @@ async fn dynamic_address_generation(
     psc: &PaymentSystemConfig,
     m: &PaymentMethod,
 ) -> Result<(AddressIndex, Address), String> {
-    match m {
+    let Ok(Some(index)) = sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM invoice_payment_data WHERE method = $1",
+        m.to_string()
+    )
+    .fetch_one(conn)
+    .await
+    else {
+        return Err(format!("..."));
+    };
+
+    let index = index as u64;
+    let address = match m {
         PaymentMethod::Litecoin => {
-            let Ok(Some(index)) = sqlx::query_scalar!(
-                "SELECT COUNT(*) FROM invoice_payment_data WHERE method = 'litecoin'",
-            )
-            .fetch_one(conn)
-            .await else { return Err(format!("..."))};
-            let index = index as u64;
             let Ok(address) = derive_ltc_bip84_address(&psc.master_seed, index) else {
-                return Err(format!("Couldn't derive"));
+                return Err(format!("Couldn't derive litecoin"));
             };
-            Ok((AddressIndex(index), Address(address)))
+            address
         }
-        PaymentMethod::Monero => todo!(),
-    }
+        PaymentMethod::Monero => {
+            let Ok(addr) = monero_create_subaddress(&psc.monero_wallet_rpc_url).await else {
+                return Err(format!("could not derive subaddress monero"));
+            };
+            addr
+        }
+    };
+    Ok((AddressIndex(index), Address(address)))
 }
 
+/// Calls monero-wallet-rpc to get (or create) the subaddress at account 0, index N.
+/// The RPC deterministically returns the same address for the same index,
+/// so it's safe to call with an existing index too.
+async fn monero_create_subaddress(rpc_url: &str) -> Result<String, String> {
+    let client = reqwest::Client::new();
 
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "0",
+        "method": "create_address",
+        "params": {
+            "account_index": 0,
+            "count": 1,
+        }
+    });
+
+    let resp = client
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Monero RPC request failed: {e}"))?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Monero RPC parse failed: {e}"))?;
+
+    let address = resp["result"]["addresses"][0]["address"]
+        .as_str()
+        .ok_or_else(|| format!("Unexpected RPC response: {resp}"))?
+        .to_string();
+
+    Ok(address)
+}
 fn parse_path(path: &str) -> Option<(&str, &str)> {
     // strips leading '/' then splits on the next '/'
     let path = path.strip_prefix('/')?;
