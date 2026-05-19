@@ -103,6 +103,7 @@ pub struct InvoicePaymentData {
     pub amount: String,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
+    pub sweeped_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 async fn check_monero_payment(
@@ -269,6 +270,7 @@ async fn validate_token(
     Ok(token)
 }
 
+use cryptocurrencies_stuff::derive_ltc::derive_ltc_bip84_address;
 use payment_system_structs::{
     Address, AddressIndex, CallbackHeaders, NewInvoiceRequest, PaymentMethod,
 };
@@ -298,8 +300,8 @@ async fn dynamic_address_generation(
             .fetch_one(conn)
             .await else { return Err(format!("..."))};
             let index = index as u64;
-            let Ok(address) = derive_ltc_wallet_address(&psc.master_seed, index) else {
-                return Err(format!("Coul'nd derive"));
+            let Ok(address) = derive_ltc_bip84_address(&psc.master_seed, index) else {
+                return Err(format!("Couldn't derive"));
             };
             Ok((AddressIndex(index), Address(address)))
         }
@@ -307,9 +309,7 @@ async fn dynamic_address_generation(
     }
 }
 
-pub fn derive_ltc_wallet_address(master_seed: &str, index: u64) -> Result<String, String> {
-   todo!();
-}
+
 fn parse_path(path: &str) -> Option<(&str, &str)> {
     // strips leading '/' then splits on the next '/'
     let path = path.strip_prefix('/')?;

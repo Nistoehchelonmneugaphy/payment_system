@@ -34,4 +34,4 @@ anyhow = "1.0.102"
 derive_more = { version = "2.1.1", features = ["display", "from", "into"] }
 chrono = { version = "0.4.44" }
 tracing = "0.1.44"
-
+cryptocurrencies_stuff = { git = "ssh://git@github.com/Aeroel/cryptocurrencies_stuff.git" }
