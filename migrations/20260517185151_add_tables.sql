@@ -15,7 +15,7 @@ CREATE TABLE invoice_payment_data (
     amount                  TEXT          NOT NULL,
     created_at              TIMESTAMPTZ   NOT NULL  DEFAULT NOW(),
     completed_at            TIMESTAMPTZ   NULL,
-    sweeped_at              TIMESTAMPTZ  NULL, 
+    sweeped_at              TIMESTAMPTZ  NULL
 );
 
 
