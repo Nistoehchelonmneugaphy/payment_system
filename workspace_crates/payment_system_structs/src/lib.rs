@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use strum::EnumString;
 
-#[derive(Clone, serde::Serialize, serde::Deserialize, EnumString, strum::Display)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, EnumString, strum::Display,)]
 #[strum(ascii_case_insensitive)]
 pub enum PaymentMethod {
     #[strum(serialize = "litecoin", serialize = "ltc")]

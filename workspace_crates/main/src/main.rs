@@ -49,9 +49,10 @@ async fn main() -> anyhow::Result<()> {
                 let _token =
                     ok_or_400!(validate_token(&mut tx, request_data.headers.clone()).await);
                 let method = ok_or_400!(APIMethod::from_str(method_str));
-
+                println!("Method: {method:#?}");
                 match method {
                     APIMethod::NewInvoice => {
+                    
                         ok_or_400!(
                             deny_if_too_many_active_invoices(
                                 &mut tx,
@@ -301,7 +302,7 @@ use server::http_stuff::{
 use sqlx::{PgConnection, Postgres, Transaction, postgres::types::PgInterval};
 use strum::EnumString;
 
-#[derive(EnumString)]
+#[derive(EnumString, Debug)]
 #[strum(serialize_all = "snake_case")]
 pub enum APIMethod {
     NewInvoice,
