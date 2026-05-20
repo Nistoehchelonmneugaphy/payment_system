@@ -198,7 +198,7 @@ async fn dynamic_address_generation(
             address
         }
         PaymentMethod::Monero => {
-            let addr = match monero_create_subaddress(&psc.monero_wallet_rpc_url).await {
+            let (addr, _payment_id) = match get_monero_address_and_payment_id(&psc.monero_wallet_rpc_url).await {
                 Ok(a) => a,
                 Err(e) => {
                     return Err(format!("Err '{e}' from monero subaddr gen"));
@@ -219,18 +219,13 @@ fn parse_path(path: &str) -> Option<(&str, &str)> {
 
 
 
-pub async fn monero_create_subaddress(rpc_url: &str) -> Result<String, String> {
+pub async fn get_monero_address_and_payment_id(rpc_url: &str) -> Result<(String, String,), String> {
     let client = reqwest::Client::new();
 
-    let body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "0",
-        "method": "create_address",
-        "params": {
-            "account_index": 0,
-            "count": 1,
-        }
-    });
+    let body = serde_json::json!({"jsonrpc": "2.0",
+    "id": "0",
+    "method": "make_integrated_address"
+  });
 
     let resp = client
         .post(rpc_url)
@@ -242,10 +237,14 @@ pub async fn monero_create_subaddress(rpc_url: &str) -> Result<String, String> {
         .await
         .map_err(|e| format!("Monero RPC parse failed: {e}"))?;
 
-    let address = resp["result"]["addresses"][0]["address"]
+    let address = resp["result"]["integrated_address"]
+        .as_str()
+        .ok_or_else(|| format!("Unexpected RPC response: {resp}"))?
+        .to_string();
+    let payment_id = resp["result"]["payment_id"]
         .as_str()
         .ok_or_else(|| format!("Unexpected RPC response: {resp}"))?
         .to_string();
 
-    Ok(address)
+    Ok((address, payment_id))
 }
