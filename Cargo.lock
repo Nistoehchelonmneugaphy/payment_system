@@ -330,7 +330,7 @@ dependencies = [
 [[package]]
 name = "config_reader"
 version = "0.1.0"
-source = "git+ssh://git@github.com/Aeroel/server_2_only.git#dce966fe0935653b900d65c7ccfda5d00dc40c03"
+source = "git+ssh://git@github.com/Aeroel/server_2_only.git#7ca3dedb80ab655cc8a1cba54b4b1d8ffe411d4c"
 dependencies = [
  "config",
  "dotenvy",
@@ -666,7 +666,7 @@ dependencies = [
 [[package]]
 name = "encoding"
 version = "0.1.0"
-source = "git+ssh://git@github.com/Aeroel/server_2_only.git#dce966fe0935653b900d65c7ccfda5d00dc40c03"
+source = "git+ssh://git@github.com/Aeroel/server_2_only.git#7ca3dedb80ab655cc8a1cba54b4b1d8ffe411d4c"
 dependencies = [
  "urlencoding",
 ]
@@ -704,13 +704,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
 name = "error_structs"
 version = "0.1.0"
-source = "git+ssh://git@github.com/Aeroel/server_2_only.git#dce966fe0935653b900d65c7ccfda5d00dc40c03"
+source = "git+ssh://git@github.com/Aeroel/server_2_only.git#7ca3dedb80ab655cc8a1cba54b4b1d8ffe411d4c"
 
 [[package]]
 name = "etcetera"
@@ -839,6 +839,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cecba35d7ad927e23624b22ad55235f2239cfa44fd10428eecbeba6d6a717718"
 
 [[package]]
+name = "futures-macro"
+version = "0.3.32"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e835b70203e41293343137df5c0664546da5745f82ec9b84d40be8336958447b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "futures-sink"
 version = "0.3.32"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -858,6 +869,7 @@ checksum = "389ca41296e6190b48053de0321d02a77f32f8a5d2461dd38762c0593805c6d6"
 dependencies = [
  "futures-core",
  "futures-io",
+ "futures-macro",
  "futures-sink",
  "futures-task",
  "memchr",
@@ -1101,7 +1113,7 @@ dependencies = [
 [[package]]
 name = "http_stuff"
 version = "0.1.0"
-source = "git+ssh://git@github.com/Aeroel/server_2_only.git#dce966fe0935653b900d65c7ccfda5d00dc40c03"
+source = "git+ssh://git@github.com/Aeroel/server_2_only.git#7ca3dedb80ab655cc8a1cba54b4b1d8ffe411d4c"
 dependencies = [
  "config_reader",
  "encoding",
@@ -1603,7 +1615,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -2260,7 +2272,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.61.2",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]
@@ -2476,7 +2488,7 @@ dependencies = [
 [[package]]
 name = "server"
 version = "0.1.0"
-source = "git+ssh://git@github.com/Aeroel/server_2_only.git#dce966fe0935653b900d65c7ccfda5d00dc40c03"
+source = "git+ssh://git@github.com/Aeroel/server_2_only.git#7ca3dedb80ab655cc8a1cba54b4b1d8ffe411d4c"
 dependencies = [
  "config_reader",
  "dotenvy",
@@ -2485,6 +2497,7 @@ dependencies = [
  "http_stuff",
  "server_config",
  "tokio",
+ "tokio-util",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
@@ -2494,7 +2507,7 @@ dependencies = [
 [[package]]
 name = "server_config"
 version = "0.1.0"
-source = "git+ssh://git@github.com/Aeroel/server_2_only.git#dce966fe0935653b900d65c7ccfda5d00dc40c03"
+source = "git+ssh://git@github.com/Aeroel/server_2_only.git#7ca3dedb80ab655cc8a1cba54b4b1d8ffe411d4c"
 dependencies = [
  "humantime-serde",
  "serde",
@@ -2606,7 +2619,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.60.2",
 ]
 
 [[package]]
@@ -3076,8 +3089,12 @@ checksum = "9ae9cec805b01e8fc3fd2fe289f89149a9b66dd16786abd8b19cfa7b48cb0098"
 dependencies = [
  "bytes",
  "futures-core",
+ "futures-io",
  "futures-sink",
+ "futures-util",
+ "hashbrown 0.15.5",
  "pin-project-lite",
+ "slab",
  "tokio",
 ]
 
@@ -3317,7 +3334,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 [[package]]
 name = "url"
 version = "0.1.0"
-source = "git+ssh://git@github.com/Aeroel/server_2_only.git#dce966fe0935653b900d65c7ccfda5d00dc40c03"
+source = "git+ssh://git@github.com/Aeroel/server_2_only.git#7ca3dedb80ab655cc8a1cba54b4b1d8ffe411d4c"
 dependencies = [
  "encoding",
  "indexmap",
@@ -3566,7 +3583,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

@@ -90,9 +90,7 @@ async fn main() -> anyhow::Result<()> {
     let _ = server::run(
         app_executable_version::get(),
         handler,
-        server::run::BackgroundSpawnTasks {
-            new_tasks_to_spawn: Some(vec![poll_payments_task]),
-        },
+        server::run::BackgroundSpawnTasks {new_tasks_to_spawn:Some(vec![poll_payments_task]), cancellation_token: Some(cancellation_token) },
     )
     .await;
     Ok(())
@@ -236,7 +234,7 @@ async fn poll_payments(
             {
                 tracing::info!("Poll payments task cancelled during invoice delay");
                 return;
-            }
+            } 
         }
         if cancellable_sleep(Duration::from_mins(5), &cancellation_token)
             .await
