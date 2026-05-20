@@ -2,32 +2,7 @@ use main::poll_payments::poll_payments;
 use server::http_stuff::http_response::ContentType;
 use std::{path::PathBuf, str::FromStr};
 use tokio_util::sync::CancellationToken;
-
-macro_rules! ok_or_400 {
-    ($expr:expr) => {
-        match $expr {
-            Ok(v) => v,
-            Err(_) => return server::http_stuff::http_response::bad_request_400(),
-        }
-    };
-}
-macro_rules! ok_or_err_400 {
-    ($expr:expr) => {
-        match $expr {
-            Ok(v) => v,
-            Err(_) => return Err(server::http_stuff::http_response::bad_request_400()),
-        }
-    };
-}
-macro_rules! some_or_400 {
-    ($expr:expr) => {
-        match $expr {
-            Some(v) => v,
-            None => return server::http_stuff::http_response::bad_request_400(),
-        }
-    };
-}
-
+use main::{ok_or_400, ok_or_err_400, some_or_400};
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
     let cancellation_token = CancellationToken::new();
@@ -46,27 +21,27 @@ async fn main() -> anyhow::Result<()> {
             let db_pool = db_pool_clone_for_handler.clone();
             let payment_system_config = payment_system_config_clone_for_handler.clone();
             Box::pin(async move {
-                let (prefix, method_str) = some_or_400!(parse_path(&request_data.path));
+                let (prefix, method_str) = some_or_400!(parse_path(&request_data.path), format!("Could not parse {}", &request_data.path));
+                let token = some_or_400!(request_data.headers.get("x-api-token"), "x-api-token header not found in request").to_string();
                 if prefix != payment_system_config.secret_prefix {
                     return server::http_stuff::http_response::bad_request_400();
                 }
-                let _token =
-                    ok_or_400!(validate_token(db_pool.clone(), request_data.headers.clone()).await);
-                let method = ok_or_400!(APIMethod::from_str(method_str));
+               ok_or_400!(validate_token(db_pool.clone(), token.clone()).await, format!("Could not validate token {token}"));
+                let method = ok_or_400!(APIMethod::from_str(method_str), "Could not parse method".to_string());
                 println!("Method: {method:#?}");
                 match method {
                     APIMethod::NewInvoice => {
-                        let mut tx = ok_or_400!(db_pool.begin().await);
+                        let mut tx = ok_or_400!(db_pool.begin().await, String::new());
                         ok_or_400!(
                             deny_if_too_many_active_invoices(
                                 &mut tx,
                                 payment_system_config.clone()
                             )
-                            .await
+                            .await, String::new()
                         );
                         let req = ok_or_400!(serde_json::from_slice::<NewInvoiceRequest>(
                             &request_data.body_bytes,
-                        ));
+                        ), format!("Could not parse json from {}", String::from_utf8_lossy(&request_data.body_bytes)));
                         let (index, address) = ok_or_400!(
                             dynamic_address_generation(
                                 &mut *tx,
@@ -133,11 +108,8 @@ pub enum TokenValidationError {
     DbError,
     TokenNotFound,
 }
-async fn validate_token(db_pool: PgPool, headers: Headers) -> Result<String, TokenValidationError> {
-    let token = {
-        let Some(token_str) = headers.get("x-api-token") else {
-            return Err(TokenValidationError::NoTokenInHeaders);
-        };
+async fn validate_token(db_pool: PgPool, token_str: String) -> Result<(), TokenValidationError> {
+    let _token = {
         let exists: bool =
             match sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tokens WHERE token = $1)")
                 .bind(&token_str)
@@ -154,7 +126,7 @@ async fn validate_token(db_pool: PgPool, headers: Headers) -> Result<String, Tok
         }
         token_str.to_string()
     };
-    Ok(token)
+    Ok(())
 }
 
 use cryptocurrencies_stuff::{
@@ -163,10 +135,9 @@ use cryptocurrencies_stuff::{
 use payment_system_structs::{
     Address, AddressIndex, Amount, NewInvoiceRequest, PaymentInfo, PaymentMethod, PaymentSystemConfig
 };
-use server::http_stuff::{
-    http_request_parsing::Headers,
-    http_response::{Charset, HttpResponseData, bad_request_400, ok},
-};
+use server::http_stuff::
+    http_response::{Charset, HttpResponseData, bad_request_400, ok}
+;
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use strum::EnumString;
 
