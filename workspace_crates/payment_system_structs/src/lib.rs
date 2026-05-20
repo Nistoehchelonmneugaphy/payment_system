@@ -32,7 +32,7 @@ pub struct InvoicePaymentData {
 }
 
 
-#[derive(Clone, serde::Serialize, serde::Deserialize, EnumString, strum::Display,)]
+#[derive(Clone, serde::Serialize, serde::Deserialize, EnumString, strum::Display, Debug)]
 #[strum(ascii_case_insensitive)]
 pub enum PaymentMethod {
     #[strum(serialize = "litecoin", serialize = "ltc")]
@@ -41,7 +41,7 @@ pub enum PaymentMethod {
     Monero,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct NewInvoiceRequest {
     pub invoice_id: String,
     pub method: PaymentMethod,
@@ -51,11 +51,11 @@ pub struct NewInvoiceRequest {
     pub callback_headers: CallbackHeaders,
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
 pub struct CallbackHeaders(pub HashMap<String, String>);
 
 /// Sent in response to invoice creation
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct PaymentInfo {
     pub amount: Amount,
     pub address: Address,

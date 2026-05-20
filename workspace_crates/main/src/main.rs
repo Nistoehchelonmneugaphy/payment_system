@@ -1,8 +1,8 @@
 use main::poll_payments::poll_payments;
+use main::{ok_or_400, ok_or_err_400, some_or_400};
 use server::http_stuff::http_response::ContentType;
 use std::{path::PathBuf, str::FromStr};
 use tokio_util::sync::CancellationToken;
-use main::{ok_or_400, ok_or_err_400, some_or_400};
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
     let cancellation_token = CancellationToken::new();
@@ -21,13 +21,28 @@ async fn main() -> anyhow::Result<()> {
             let db_pool = db_pool_clone_for_handler.clone();
             let payment_system_config = payment_system_config_clone_for_handler.clone();
             Box::pin(async move {
-                let (prefix, method_str) = some_or_400!(parse_path(&request_data.path), format!("Could not parse {}", &request_data.path));
-                let token = some_or_400!(request_data.headers.get("x-api-token"), "x-api-token header not found in request").to_string();
+                let (prefix, method_str) = some_or_400!(
+                    parse_path(&request_data.path),
+                    format!("Could not parse {}", &request_data.path)
+                );
                 if prefix != payment_system_config.secret_prefix {
+                    println!("prefix {prefix} != {}", payment_system_config.secret_prefix);
                     return server::http_stuff::http_response::bad_request_400();
                 }
-               ok_or_400!(validate_token(db_pool.clone(), token.clone()).await, format!("Could not validate token {token}"));
-                let method = ok_or_400!(APIMethod::from_str(method_str), "Could not parse method".to_string());
+                let token = some_or_400!(
+                    request_data.headers.get("x-api-token"),
+                    "x-api-token header not found in request"
+                )
+                .to_string();
+                println!("User used token {token}");
+                ok_or_400!(
+                    validate_token(db_pool.clone(), token.clone()).await,
+                    format!("Could not validate token {token}")
+                );
+                let method = ok_or_400!(
+                    APIMethod::from_str(method_str),
+                    "Could not parse method".to_string()
+                );
                 println!("Method: {method:#?}");
                 match method {
                     APIMethod::NewInvoice => {
@@ -37,23 +52,33 @@ async fn main() -> anyhow::Result<()> {
                                 &mut tx,
                                 payment_system_config.clone()
                             )
-                            .await, String::new()
+                            .await,
+                            format!("Too mamny invoices active")
                         );
-                        let req = ok_or_400!(serde_json::from_slice::<NewInvoiceRequest>(
-                            &request_data.body_bytes,
-                        ), format!("Could not parse json from {}", String::from_utf8_lossy(&request_data.body_bytes)));
+                        let invoice_req = ok_or_400!(
+                            serde_json::from_slice::<NewInvoiceRequest>(&request_data.body_bytes,),
+                            format!(
+                                "Could not parse json from {}",
+                                String::from_utf8_lossy(&request_data.body_bytes)
+                            )
+                        );
+                        println!("Invoice: {invoice_req:#?}");
                         let (index, address) = ok_or_400!(
                             dynamic_address_generation(
                                 &mut *tx,
                                 &payment_system_config.clone(),
-                                &req.method.clone()
-                            )
-                            .await
+                                &invoice_req.method.clone()
+                            ).await, format!("Could not generate address for {}", invoice_req.method)
                         );
 
-                        ok_or_400!(sqlx::query!("INSERT INTO invoice_payment_data (invoice_id, status_update_callback, success_callback, method, generated_address, address_index, amount) VALUES($1, $2, $3, $4, $5, $6, $7)", req.invoice_id, req.status_update_callback,  req.success_callback,  req.method.to_string(), address.to_string(), index.to_string(), req.amount_atomic.to_string()).execute(&mut *tx).await);
+                        ok_or_400!(sqlx::query!("INSERT INTO invoice_payment_data (invoice_id, status_update_callback, success_callback, method, generated_address, address_index, amount) VALUES($1, $2, $3, $4, $5, $6, $7)", invoice_req.invoice_id, invoice_req.status_update_callback,  invoice_req.success_callback,  invoice_req.method.to_string(), address.to_string(), index.to_string(), invoice_req.amount_atomic.to_string()).execute(&mut *tx).await, "sqlx error");
                         ok_or_400!(tx.commit().await);
-                        let payment_info = PaymentInfo { amount: Amount(req.amount_atomic), address, method: req.method };
+                        let payment_info = PaymentInfo {
+                            amount: Amount(invoice_req.amount_atomic),
+                            address,
+                            method: invoice_req.method,
+                        };
+                        println!("{payment_info:#?}");
                         let content = ok_or_400!(serde_json::to_vec(&payment_info));
                         return ok(content, ContentType::ApplicationJson, Some(Charset::Utf8));
                     }
@@ -103,6 +128,7 @@ async fn deny_if_too_many_active_invoices(
     Ok(())
 }
 
+#[derive(Debug, strum::Display)]
 pub enum TokenValidationError {
     NoTokenInHeaders,
     DbError,
@@ -130,14 +156,13 @@ async fn validate_token(db_pool: PgPool, token_str: String) -> Result<(), TokenV
 }
 
 use cryptocurrencies_stuff::{
-    derive_ltc::derive_ltc_bip84_address, monero_wallet_rpc::monero_create_subaddress,
+    derive_ltc::derive_ltc_bip84_address,
 };
 use payment_system_structs::{
-    Address, AddressIndex, Amount, NewInvoiceRequest, PaymentInfo, PaymentMethod, PaymentSystemConfig
+    Address, AddressIndex, Amount, NewInvoiceRequest, PaymentInfo, PaymentMethod,
+    PaymentSystemConfig,
 };
-use server::http_stuff::
-    http_response::{Charset, HttpResponseData, bad_request_400, ok}
-;
+use server::http_stuff::http_response::{Charset, HttpResponseData, bad_request_400, ok};
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use strum::EnumString;
 
@@ -159,6 +184,7 @@ async fn dynamic_address_generation(
     .fetch_one(conn)
     .await
     else {
+        println!("Could not get count {}", m.to_string());
         return Err(format!("..."));
     };
 
@@ -166,13 +192,17 @@ async fn dynamic_address_generation(
     let address = match m {
         PaymentMethod::Litecoin => {
             let Ok(address) = derive_ltc_bip84_address(&psc.master_seed, index) else {
+                println!("Litecoin addr error");
                 return Err(format!("Couldn't derive litecoin"));
             };
             address
         }
         PaymentMethod::Monero => {
-            let Ok(addr) = monero_create_subaddress(&psc.monero_wallet_rpc_url).await else {
-                return Err(format!("could not derive subaddress monero"));
+            let addr = match monero_create_subaddress(&psc.monero_wallet_rpc_url).await {
+                Ok(a) => a,
+                Err(e) => {
+                    return Err(format!("Err '{e}' from monero subaddr gen"));
+                }
             };
             addr
         }
@@ -185,4 +215,37 @@ fn parse_path(path: &str) -> Option<(&str, &str)> {
     let path = path.strip_prefix('/')?;
     let (prefix, method) = path.split_once('/')?;
     Some((prefix, method))
+}
+
+
+
+pub async fn monero_create_subaddress(rpc_url: &str) -> Result<String, String> {
+    let client = reqwest::Client::new();
+
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "0",
+        "method": "create_address",
+        "params": {
+            "account_index": 0,
+            "count": 1,
+        }
+    });
+
+    let resp = client
+        .post(rpc_url)
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("Monero RPC request failed: {e}"))?
+        .json::<serde_json::Value>()
+        .await
+        .map_err(|e| format!("Monero RPC parse failed: {e}"))?;
+
+    let address = resp["result"]["addresses"][0]["address"]
+        .as_str()
+        .ok_or_else(|| format!("Unexpected RPC response: {resp}"))?
+        .to_string();
+
+    Ok(address)
 }
