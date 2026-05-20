@@ -1,5 +1,8 @@
-use std::{path::PathBuf, str::FromStr, time::Duration};
+use main::poll_payments::poll_payments;
+use server::http_stuff::http_response::ContentType;
+use std::{path::PathBuf, str::FromStr};
 use tokio_util::sync::CancellationToken;
+
 macro_rules! ok_or_400 {
     ($expr:expr) => {
         match $expr {
@@ -47,13 +50,13 @@ async fn main() -> anyhow::Result<()> {
                 if prefix != payment_system_config.secret_prefix {
                     return server::http_stuff::http_response::bad_request_400();
                 }
-                let mut tx = ok_or_400!(db_pool.begin().await);
                 let _token =
-                    ok_or_400!(validate_token(&mut tx, request_data.headers.clone()).await);
+                    ok_or_400!(validate_token(db_pool.clone(), request_data.headers.clone()).await);
                 let method = ok_or_400!(APIMethod::from_str(method_str));
                 println!("Method: {method:#?}");
                 match method {
                     APIMethod::NewInvoice => {
+                        let mut tx = ok_or_400!(db_pool.begin().await);
                         ok_or_400!(
                             deny_if_too_many_active_invoices(
                                 &mut tx,
@@ -74,10 +77,12 @@ async fn main() -> anyhow::Result<()> {
                         );
 
                         ok_or_400!(sqlx::query!("INSERT INTO invoice_payment_data (invoice_id, status_update_callback, success_callback, method, generated_address, address_index, amount) VALUES($1, $2, $3, $4, $5, $6, $7)", req.invoice_id, req.status_update_callback,  req.success_callback,  req.method.to_string(), address.to_string(), index.to_string(), req.amount_atomic.to_string()).execute(&mut *tx).await);
+                        ok_or_400!(tx.commit().await);
+                        let payment_info = PaymentInfo { amount: Amount(req.amount_atomic), address, method: req.method };
+                        let content = ok_or_400!(serde_json::to_vec(&payment_info));
+                        return ok(content, ContentType::ApplicationJson, Some(Charset::Utf8));
                     }
-                }
-                ok_or_400!(tx.commit().await);
-                todo!();
+                };
             })
         },
     );
@@ -90,179 +95,15 @@ async fn main() -> anyhow::Result<()> {
     let _ = server::run(
         app_executable_version::get(),
         handler,
-        server::run::BackgroundSpawnTasks {new_tasks_to_spawn:Some(vec![poll_payments_task]), cancellation_token: Some(cancellation_token) },
+        server::run::BackgroundSpawnTasks {
+            new_tasks_to_spawn: Some(vec![poll_payments_task]),
+            cancellation_token: Some(cancellation_token),
+        },
     )
     .await;
     Ok(())
 }
 
-pub struct InvoicePaymentData {
-    pub primary_key: i64,
-    pub invoice_id: String,
-    pub status_update_callback: String,
-    pub success_callback: String,
-    pub method: String,
-    pub generated_address: String,
-    pub address_index: String,
-    pub amount: String,
-    pub created_at: chrono::DateTime<chrono::Utc>,
-    pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub sweeped_at: Option<chrono::DateTime<chrono::Utc>>,
-}
-
-async fn check_monero_payment(
-    invoice_payment_data: &InvoicePaymentData,
-    client: &reqwest::Client,
-    payment_system_config: &PaymentSystemConfig,
-) -> anyhow::Result<bool> {
-    let address_index: u32 = invoice_payment_data.address_index.parse()?;
-    let expected_amount: u64 = invoice_payment_data.amount.parse()?; // already in piconer
-    let body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "0",
-        "method": "get_transfers",
-        "params": {
-            "in": true,
-            "account_index": 0,
-            "subaddr_indices": [address_index]
-        }
-    });
-    let res: serde_json::Value = client
-        .post(&payment_system_config.monero_wallet_rpc_url)
-        .json(&body)
-        .send()
-        .await?
-        .json()
-        .await?;
-
-    let transfers = res["result"]["in"].as_array().cloned().unwrap_or_default();
-    let confirmed_received: u64 = transfers
-        .iter()
-        .filter(|t| {
-            t["confirmations"].as_u64().unwrap_or(0) >= payment_system_config.monero_confirmations
-        })
-        .map(|t| t["amount"].as_u64().unwrap_or(0))
-        .sum();
-
-    Ok(confirmed_received >= expected_amount)
-}
-
-async fn cancellable_sleep(
-    duration: Duration,
-    cancellation_token: &CancellationToken,
-) -> Result<(), ()> {
-    tokio::select! {
-        _ = tokio::time::sleep(duration) => Ok(()),
-        _ = cancellation_token.cancelled() => Err(()),
-    }
-}
-
-async fn poll_payments(
-    db_pool: sqlx::PgPool,
-    payment_system_config: PaymentSystemConfig,
-    cancellation_token: CancellationToken,
-) {
-    let rpc = reqwest::Client::new();
-    let interval = PgInterval {
-        months: 0,
-        days: 0,
-        microseconds: (payment_system_config.active_invoice_minutes_since_creation as i64)
-            * 60
-            * 1_000_000,
-    };
-
-    loop {
-        let db_pool = db_pool.clone();
-        let invoices = sqlx::query_as!(
-            InvoicePaymentData,
-            "SELECT * FROM invoice_payment_data  WHERE completed_at IS NULL
-       AND created_at > NOW() - $1::interval",
-            &interval
-        )
-        .fetch_all(&db_pool)
-        .await
-        .unwrap_or_default();
-        for invoice in invoices {
-            match invoice.method.as_str() {
-                "monero" => {
-                    let Ok(paid) =
-                        check_monero_payment(&invoice, &rpc, &payment_system_config).await
-                    else {
-                        continue;
-                    };
-                    let Ok(mut tx) = db_pool.begin().await else {
-                        continue;
-                    };
-                    if paid {
-                        let result = sqlx::query!(
-                            "UPDATE invoice_payment_data 
-                             SET completed_at = NOW() 
-                             WHERE invoice_id = $1 
-                             AND completed_at IS NULL", // guard against double update
-                            &invoice.invoice_id
-                        )
-                        .execute(&mut *tx)
-                        .await;
-                        if result.is_err() {
-                            tracing::error!(
-                                "Failed to mark invoice {} as complete",
-                                invoice.invoice_id
-                            );
-                            continue;
-                        }
-                        let Ok(headers) =
-                            fetch_callback_headers(&mut *tx, &invoice.invoice_id).await
-                        else {
-                            continue;
-                        };
-
-                        let mut request = rpc.post(&invoice.success_callback);
-
-                        for (key, value) in &headers.0 {
-                            request = request.header(key, value);
-                        }
-
-                        let _ = request.send().await;
-                        let _ = tx.commit().await;
-                    }
-                }
-                _ => continue,
-            }
-            if cancellable_sleep(Duration::from_secs(30), &cancellation_token)
-                .await
-                .is_err()
-            {
-                tracing::info!("Poll payments task cancelled during invoice delay");
-                return;
-            } 
-        }
-        if cancellable_sleep(Duration::from_mins(5), &cancellation_token)
-            .await
-            .is_err()
-        {
-            tracing::info!("Poll payments task cancelled during main sleep");
-            return;
-        }
-    }
-}
-
-async fn fetch_callback_headers(
-    conn: &mut PgConnection,
-    invoice_id: &str,
-) -> Result<CallbackHeaders, String> {
-    let Ok(rows) = sqlx::query!(
-        "SELECT key, value FROM callback_headers WHERE invoice_id = $1",
-        invoice_id
-    )
-    .fetch_all(conn)
-    .await
-    else {
-        return Err(format!("DB err"));
-    };
-
-    let map = rows.into_iter().map(|r| (r.key, r.value)).collect();
-    Ok(CallbackHeaders(map))
-}
 async fn deny_if_too_many_active_invoices(
     tx: &mut Transaction<'_, Postgres>,
     payment_system_config: PaymentSystemConfig,
@@ -292,10 +133,7 @@ pub enum TokenValidationError {
     DbError,
     TokenNotFound,
 }
-async fn validate_token(
-    tx: &mut Transaction<'_, Postgres>,
-    headers: Headers,
-) -> Result<String, TokenValidationError> {
+async fn validate_token(db_pool: PgPool, headers: Headers) -> Result<String, TokenValidationError> {
     let token = {
         let Some(token_str) = headers.get("x-api-token") else {
             return Err(TokenValidationError::NoTokenInHeaders);
@@ -303,7 +141,7 @@ async fn validate_token(
         let exists: bool =
             match sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM tokens WHERE token = $1)")
                 .bind(&token_str)
-                .fetch_one(&mut **tx)
+                .fetch_one(&db_pool)
                 .await
             {
                 Ok(b) => b,
@@ -323,13 +161,13 @@ use cryptocurrencies_stuff::{
     derive_ltc::derive_ltc_bip84_address, monero_wallet_rpc::monero_create_subaddress,
 };
 use payment_system_structs::{
-    Address, AddressIndex, CallbackHeaders, NewInvoiceRequest, PaymentMethod,
+    Address, AddressIndex, Amount, NewInvoiceRequest, PaymentInfo, PaymentMethod, PaymentSystemConfig
 };
 use server::http_stuff::{
     http_request_parsing::Headers,
-    http_response::{HttpResponseData, bad_request_400},
+    http_response::{Charset, HttpResponseData, bad_request_400, ok},
 };
-use sqlx::{PgConnection, Postgres, Transaction, postgres::types::PgInterval};
+use sqlx::{PgConnection, PgPool, Postgres, Transaction};
 use strum::EnumString;
 
 #[derive(EnumString, Debug)]
@@ -376,18 +214,4 @@ fn parse_path(path: &str) -> Option<(&str, &str)> {
     let path = path.strip_prefix('/')?;
     let (prefix, method) = path.split_once('/')?;
     Some((prefix, method))
-}
-
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct PaymentSystemConfig {
-    pub database_url: String,
-    pub secret_prefix: String,
-    pub monero_wallet_rpc_url: String,
-    pub monero_confirmations: u64,
-    // limit monitoring load
-    pub max_active_invoices: u64,
-    pub active_invoice_minutes_since_creation: u64,
-    pub master_seed: String,
-    pub cf_bypass_token_header_name: String,
-    pub cf_bypass_token_header_value: String,
 }
