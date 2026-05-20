@@ -1,5 +1,5 @@
 use std::{path::PathBuf, str::FromStr, time::Duration};
-
+use tokio_util::sync::CancellationToken;
 macro_rules! ok_or_400 {
     ($expr:expr) => {
         match $expr {
@@ -27,6 +27,8 @@ macro_rules! some_or_400 {
 
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> anyhow::Result<()> {
+    let cancellation_token = CancellationToken::new();
+    let poll_payments_token = cancellation_token.child_token();
     dotenvy::dotenv().ok();
     let payment_system_config =
         server::config_reader::read_config::<PaymentSystemConfig>(PathBuf::from(".env"));
@@ -52,7 +54,6 @@ async fn main() -> anyhow::Result<()> {
                 println!("Method: {method:#?}");
                 match method {
                     APIMethod::NewInvoice => {
-                    
                         ok_or_400!(
                             deny_if_too_many_active_invoices(
                                 &mut tx,
@@ -84,6 +85,7 @@ async fn main() -> anyhow::Result<()> {
     let poll_payments_task = Box::pin(poll_payments(
         db_pool.clone(),
         payment_system_config.clone(),
+        poll_payments_token,
     ));
     let _ = server::run(
         app_executable_version::get(),
@@ -146,7 +148,22 @@ async fn check_monero_payment(
 
     Ok(confirmed_received >= expected_amount)
 }
-async fn poll_payments(db_pool: sqlx::PgPool, payment_system_config: PaymentSystemConfig) {
+
+async fn cancellable_sleep(
+    duration: Duration,
+    cancellation_token: &CancellationToken,
+) -> Result<(), ()> {
+    tokio::select! {
+        _ = tokio::time::sleep(duration) => Ok(()),
+        _ = cancellation_token.cancelled() => Err(()),
+    }
+}
+
+async fn poll_payments(
+    db_pool: sqlx::PgPool,
+    payment_system_config: PaymentSystemConfig,
+    cancellation_token: CancellationToken,
+) {
     let rpc = reqwest::Client::new();
     let interval = PgInterval {
         months: 0,
@@ -213,13 +230,28 @@ async fn poll_payments(db_pool: sqlx::PgPool, payment_system_config: PaymentSyst
                 }
                 _ => continue,
             }
-            tokio::time::sleep(Duration::from_secs(30)).await;
+            if cancellable_sleep(Duration::from_secs(30), &cancellation_token)
+                .await
+                .is_err()
+            {
+                tracing::info!("Poll payments task cancelled during invoice delay");
+                return;
+            }
         }
-        tokio::time::sleep(Duration::from_mins(5)).await;
+        if cancellable_sleep(Duration::from_mins(5), &cancellation_token)
+            .await
+            .is_err()
+        {
+            tracing::info!("Poll payments task cancelled during main sleep");
+            return;
+        }
     }
 }
 
-async fn fetch_callback_headers(conn: &mut PgConnection, invoice_id: &str) -> Result<CallbackHeaders, String> {
+async fn fetch_callback_headers(
+    conn: &mut PgConnection,
+    invoice_id: &str,
+) -> Result<CallbackHeaders, String> {
     let Ok(rows) = sqlx::query!(
         "SELECT key, value FROM callback_headers WHERE invoice_id = $1",
         invoice_id
