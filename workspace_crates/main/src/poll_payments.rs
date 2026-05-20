@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use payment_system_structs::{InvoicePaymentData, PaymentSystemConfig};
+use payment_system_structs::{Payment, PaymentId, PaymentSystemConfig};
 use sqlx::postgres::types::PgInterval;
 use tokio_util::sync::CancellationToken;
 
@@ -22,20 +22,20 @@ pub async fn poll_payments(
 
     loop {
         let db_pool = db_pool.clone();
-        let invoices = sqlx::query_as!(
-            InvoicePaymentData,
-            "SELECT * FROM invoice_payment_data  WHERE completed_at IS NULL
+        let payments = sqlx::query_as!(
+            Payment,
+            "SELECT * FROM payments  WHERE completed_at IS NULL
        AND created_at > NOW() - $1::interval",
             &interval
         )
         .fetch_all(&db_pool)
         .await
         .unwrap_or_default();
-        for invoice in invoices {
-            match invoice.method.as_str() {
+        for payment in payments {
+            match payment.method.as_str() {
                 "monero" => {
                     let Ok(paid) =
-                        check_monero_payment(&invoice, &rpc, &payment_system_config).await
+                        check_monero_payment(db_pool.clone(), &payment, &rpc, &payment_system_config).await
                     else {
                         continue;
                     };
@@ -44,28 +44,28 @@ pub async fn poll_payments(
                     };
                     if paid {
                         let result = sqlx::query!(
-                            "UPDATE invoice_payment_data 
+                            "UPDATE payments 
                              SET completed_at = NOW() 
-                             WHERE invoice_id = $1 
+                             WHERE id = $1 
                              AND completed_at IS NULL", // guard against double update
-                            &invoice.invoice_id
+                            &payment.id
                         )
                         .execute(&mut *tx)
                         .await;
                         if result.is_err() {
-                            tracing::error!(
+                            println!(
                                 "Failed to mark invoice {} as complete",
-                                invoice.invoice_id
+                                payment.id
                             );
                             continue;
                         }
                         let Ok(headers) =
-                            fetch_callback_headers(&mut *tx, &invoice.invoice_id).await
+                            fetch_callback_headers(&mut *tx, PaymentId(payment.id.clone())).await
                         else {
                             continue;
                         };
 
-                        let mut request = rpc.post(&invoice.success_callback);
+                        let mut request = rpc.post(&payment.success_callback);
 
                         for (key, value) in &headers.0 {
                             request = request.header(key, value);
@@ -96,22 +96,21 @@ pub async fn poll_payments(
 }
 
 async fn check_monero_payment(
-    invoice_payment_data: &InvoicePaymentData,
+    db_pool: sqlx::PgPool,
+    payment: &Payment,
     client: &reqwest::Client,
     payment_system_config: &PaymentSystemConfig,
 ) -> anyhow::Result<bool> {
-    let address_index: u32 = invoice_payment_data.address_index.parse()?;
-    let expected_amount: u64 = invoice_payment_data.amount.parse()?; // already in piconer
+    let monero_payment_id= sqlx::query!("SELECT monero_payment_id FROM monero_integrated_payment_ids WHERE payment_id = $1", payment.id).fetch_one(&db_pool).await?.monero_payment_id;
+    let expected_amount: u64 = payment.amount.parse()?; // already in piconer
     let body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": "0",
-        "method": "get_transfers",
-        "params": {
-            "in": true,
-            "account_index": 0,
-            "subaddr_indices": [address_index]
-        }
-    });
+    "jsonrpc": "2.0",
+    "id": "0",
+    "method": "get_payments",
+    "params": {
+      "payment_id": monero_payment_id
+    }
+  });
     let res: serde_json::Value = client
         .post(&payment_system_config.monero_wallet_rpc_url)
         .json(&body)
@@ -120,11 +119,11 @@ async fn check_monero_payment(
         .json()
         .await?;
 
-    let transfers = res["result"]["in"].as_array().cloned().unwrap_or_default();
+    let transfers = res["result"]["payments"].as_array().cloned().unwrap_or_default();
     let confirmed_received: u64 = transfers
         .iter()
         .filter(|t| {
-            t["confirmations"].as_u64().unwrap_or(0) >= payment_system_config.monero_confirmations
+            t["locked"].as_bool().unwrap_or(true) 
         })
         .map(|t| t["amount"].as_u64().unwrap_or(0))
         .sum();

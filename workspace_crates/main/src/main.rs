@@ -63,17 +63,22 @@ async fn main() -> anyhow::Result<()> {
                             )
                         );
                         println!("Invoice: {invoice_req:#?}");
-                        let (index, address) = ok_or_400!(
+                        let gened_address = ok_or_400!(
                             dynamic_address_generation(
                                 &mut *tx,
                                 &payment_system_config.clone(),
                                 &invoice_req.method.clone()
                             ).await, format!("Could not generate address for {}", invoice_req.method)
                         );
+                        let address = match gened_address {
+                            GeneratedAddress::Litecoin { index:_, address } => address,
+                            GeneratedAddress::Monero { payment_id: _, address } => address,
+                        };
 
-                        ok_or_400!(sqlx::query!("INSERT INTO invoice_payment_data (invoice_id, status_update_callback, success_callback, method, generated_address, address_index, amount) VALUES($1, $2, $3, $4, $5, $6, $7)", invoice_req.invoice_id, invoice_req.status_update_callback,  invoice_req.success_callback,  invoice_req.method.to_string(), address.to_string(), index.to_string(), invoice_req.amount_atomic.to_string()).execute(&mut *tx).await, "sqlx error");
+                        let id = ok_or_400!(sqlx::query!("INSERT INTO payments (status_update_callback, success_callback, method, address, amount) VALUES($1, $2, $3, $4, $5) RETURNING id", invoice_req.status_update_callback,  invoice_req.success_callback,  invoice_req.method.to_string(), address.to_string(), invoice_req.amount_atomic.to_string()).fetch_one(&mut *tx).await, "sqlx error").id;
                         ok_or_400!(tx.commit().await);
                         let payment_info = PaymentInfo {
+                            payment_id: PaymentId(id),
                             amount: Amount(invoice_req.amount_atomic),
                             address,
                             method: invoice_req.method,
@@ -159,8 +164,7 @@ use cryptocurrencies_stuff::{
     derive_ltc::derive_ltc_bip84_address,
 };
 use payment_system_structs::{
-    Address, AddressIndex, Amount, NewInvoiceRequest, PaymentInfo, PaymentMethod,
-    PaymentSystemConfig,
+    Address, AddressIndex, Amount, NewInvoiceRequest, PaymentId, PaymentInfo, PaymentMethod, PaymentSystemConfig
 };
 use server::http_stuff::http_response::{Charset, HttpResponseData, bad_request_400, ok};
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
@@ -172,13 +176,24 @@ pub enum APIMethod {
     NewInvoice,
 }
 
+pub enum GeneratedAddress {
+    Litecoin {
+        index: AddressIndex,
+        address: Address,
+    },
+    Monero {
+        payment_id: PaymentId,
+        address: Address,
+    }
+}
+
 async fn dynamic_address_generation(
     conn: &mut PgConnection,
     psc: &PaymentSystemConfig,
     m: &PaymentMethod,
-) -> Result<(AddressIndex, Address), String> {
+) -> Result<GeneratedAddress, String> {
     let Ok(Some(index)) = sqlx::query_scalar!(
-        "SELECT COUNT(*) FROM invoice_payment_data WHERE method = $1",
+        "SELECT COUNT(*) FROM payments WHERE method = $1",
         m.to_string()
     )
     .fetch_one(conn)
@@ -189,25 +204,24 @@ async fn dynamic_address_generation(
     };
 
     let index = index as u64;
-    let address = match m {
+    match m {
         PaymentMethod::Litecoin => {
             let Ok(address) = derive_ltc_bip84_address(&psc.master_seed, index) else {
                 println!("Litecoin addr error");
                 return Err(format!("Couldn't derive litecoin"));
             };
-            address
+            Ok(GeneratedAddress::Litecoin { index: AddressIndex(index), address: Address(address) })
         }
         PaymentMethod::Monero => {
-            let (addr, _payment_id) = match get_monero_address_and_payment_id(&psc.monero_wallet_rpc_url).await {
+            let (address, payment_id) = match get_monero_address_and_payment_id(&psc.monero_wallet_rpc_url).await {
                 Ok(a) => a,
                 Err(e) => {
                     return Err(format!("Err '{e}' from monero subaddr gen"));
                 }
             };
-            addr
+            Ok(GeneratedAddress::Monero { payment_id, address, })
         }
-    };
-    Ok((AddressIndex(index), Address(address)))
+    }
 }
 
 fn parse_path(path: &str) -> Option<(&str, &str)> {
@@ -219,7 +233,7 @@ fn parse_path(path: &str) -> Option<(&str, &str)> {
 
 
 
-pub async fn get_monero_address_and_payment_id(rpc_url: &str) -> Result<(String, String,), String> {
+pub async fn get_monero_address_and_payment_id(rpc_url: &str) -> Result<(Address, PaymentId,), String> {
     let client = reqwest::Client::new();
 
     let body = serde_json::json!({"jsonrpc": "2.0",
@@ -246,5 +260,5 @@ pub async fn get_monero_address_and_payment_id(rpc_url: &str) -> Result<(String,
         .ok_or_else(|| format!("Unexpected RPC response: {resp}"))?
         .to_string();
 
-    Ok((address, payment_id))
+    Ok((Address(address), PaymentId(payment_id)))
 }
