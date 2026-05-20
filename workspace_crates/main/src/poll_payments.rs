@@ -75,6 +75,7 @@ pub async fn poll_payments(
                         let _ = tx.commit().await;
                     }
                 }
+                "litecoin" => todo!(),
                 _ => continue,
             }
             if cancellable_sleep(Duration::from_secs(30), &cancellation_token)
