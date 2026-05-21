@@ -146,6 +146,24 @@ async fn check_monero_payment(
         .as_array()
         .cloned()
         .unwrap_or_default();
+    let current_height_body = serde_json::json!({"jsonrpc":"2.0","id":"0","method":"get_height"});
+    let res_height: serde_json::Value = client
+        .post(&payment_system_config.monero_wallet_rpc_url)
+        .json(&current_height_body)
+        .send()
+        .await?
+        .json()
+        .await?;
+    let current_height = res_height["result"]["block_height"].as_u64().unwrap_or(0);
+    println!("Curr height: {current_height}");
+    for transfer in transfers.clone() {
+        let height = transfer["height"].as_u64().unwrap_or(999999999);
+        if current_height < height {
+            println!("A transfer: to unlock: height: {}", height - current_height);
+        } else {
+            println!("An unlock tx");
+        }
+    }
     if transfers.len() > 0 {
         println!("Received some transfers!! {transfers:#?}");
     }
