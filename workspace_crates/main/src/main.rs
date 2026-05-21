@@ -63,9 +63,12 @@ async fn main() -> anyhow::Result<()> {
                                 String::from_utf8_lossy(&request_data.body_bytes)
                             )
                         );
+
                         println!("Invoice: {invoice_req:#?}");
                         let id = ok_or_400!(sqlx::query!("INSERT INTO payments (status_update_callback, success_callback, method, address, amount) VALUES($1, $2, $3, $4, $5) RETURNING id", invoice_req.status_update_callback,  invoice_req.success_callback,  invoice_req.method.to_string(), "to_do", invoice_req.amount_atomic.to_string()).fetch_one(&mut *tx).await, "sqlx error").id;
-
+                        for (k, v) in invoice_req.callback_headers.0.iter() {
+                            ok_or_400!(sqlx::query!("INSERT INTO callback_headers (payment_id, key, value) VALUES ($1, $2, $3)", id.clone(), k, v, ).execute(&mut *tx).await);
+                        }
                         let gened_address = ok_or_400!(
                             dynamic_address_generation(
                                 id.clone(),
