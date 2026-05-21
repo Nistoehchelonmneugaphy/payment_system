@@ -10,7 +10,7 @@ pub async fn poll_payments(
     db_pool: sqlx::PgPool,
     payment_system_config: PaymentSystemConfig,
     cancellation_token: CancellationToken,
-    sleep_between_each_payment_check: u64, 
+    sleep_between_each_payment_check: u64,
     sleep_between_each_loop: u64,
 ) {
     let rpc = reqwest::Client::new();
@@ -84,17 +84,23 @@ pub async fn poll_payments(
                 "litecoin" => todo!(),
                 _ => continue,
             }
-            if cancellable_sleep(Duration::from_secs(sleep_between_each_payment_check), &cancellation_token)
-                .await
-                .is_err()
+            if cancellable_sleep(
+                Duration::from_secs(sleep_between_each_payment_check),
+                &cancellation_token,
+            )
+            .await
+            .is_err()
             {
                 tracing::info!("Poll payments task cancelled during invoice delay");
                 return;
             }
         }
-        if cancellable_sleep(Duration::from_secs(sleep_between_each_loop), &cancellation_token)
-            .await
-            .is_err()
+        if cancellable_sleep(
+            Duration::from_secs(sleep_between_each_loop),
+            &cancellation_token,
+        )
+        .await
+        .is_err()
         {
             tracing::info!("Poll payments task cancelled during main sleep");
             return;
@@ -117,8 +123,8 @@ async fn check_monero_payment(
     .monero_payment_id;
     let expected_amount: u64 = payment.amount.parse()?; // already in piconer
     println!(
-        "[Payment ID {}] Checking if the expect amount of {expected_amount} piconero was paid",
-        payment.id
+        "[Payment ID {}] Checking if the expect amount of {expected_amount} piconero was paid to {}",
+        payment.id, payment.address
     );
     let body = serde_json::json!({
       "jsonrpc": "2.0",
@@ -148,7 +154,18 @@ async fn check_monero_payment(
         .filter(|t| t["locked"].as_bool().unwrap_or(true) != true)
         .map(|t| t["amount"].as_u64().unwrap_or(0))
         .sum();
+    let total_received: u64 = transfers
+        .iter()
+        .map(|t| t["amount"].as_u64().unwrap_or(0))
+        .sum();
+    println!("Confirmed: {confirmed_received}");
+    println!("Confirmed + unconfirmed: {total_received}");
+    let complete = confirmed_received >= expected_amount;
 
+    match complete {
+        false => println!("not enough"),
+        true => println!("yay, enough"),
+    }
     Ok(confirmed_received >= expected_amount)
 }
 
