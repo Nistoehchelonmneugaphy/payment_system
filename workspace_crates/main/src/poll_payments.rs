@@ -10,6 +10,8 @@ pub async fn poll_payments(
     db_pool: sqlx::PgPool,
     payment_system_config: PaymentSystemConfig,
     cancellation_token: CancellationToken,
+    sleep_between_each_payment_check: u64, 
+    sleep_between_each_loop: u64,
 ) {
     let rpc = reqwest::Client::new();
     let interval = PgInterval {
@@ -31,11 +33,17 @@ pub async fn poll_payments(
         .fetch_all(&db_pool)
         .await
         .unwrap_or_default();
+        println!("Polling for {} payments", payments.len());
         for payment in payments {
             match payment.method.as_str() {
                 "monero" => {
-                    let Ok(paid) =
-                        check_monero_payment(db_pool.clone(), &payment, &rpc, &payment_system_config).await
+                    let Ok(paid) = check_monero_payment(
+                        db_pool.clone(),
+                        &payment,
+                        &rpc,
+                        &payment_system_config,
+                    )
+                    .await
                     else {
                         continue;
                     };
@@ -53,10 +61,7 @@ pub async fn poll_payments(
                         .execute(&mut *tx)
                         .await;
                         if result.is_err() {
-                            println!(
-                                "Failed to mark invoice {} as complete",
-                                payment.id
-                            );
+                            println!("Failed to mark invoice {} as complete", payment.id);
                             continue;
                         }
                         let Ok(headers) =
@@ -66,7 +71,8 @@ pub async fn poll_payments(
                         };
 
                         let mut request = rpc.post(&payment.success_callback);
-
+                        println!("Sending success_callback, payment_id: {}", payment.id);
+                        request = request.body(format!("payment_id={}", payment.id));
                         for (key, value) in &headers.0 {
                             request = request.header(key, value);
                         }
@@ -78,15 +84,15 @@ pub async fn poll_payments(
                 "litecoin" => todo!(),
                 _ => continue,
             }
-            if cancellable_sleep(Duration::from_secs(30), &cancellation_token)
+            if cancellable_sleep(Duration::from_secs(sleep_between_each_payment_check), &cancellation_token)
                 .await
                 .is_err()
             {
                 tracing::info!("Poll payments task cancelled during invoice delay");
                 return;
-            } 
+            }
         }
-        if cancellable_sleep(Duration::from_mins(5), &cancellation_token)
+        if cancellable_sleep(Duration::from_secs(sleep_between_each_loop), &cancellation_token)
             .await
             .is_err()
         {
@@ -102,16 +108,26 @@ async fn check_monero_payment(
     client: &reqwest::Client,
     payment_system_config: &PaymentSystemConfig,
 ) -> anyhow::Result<bool> {
-    let monero_payment_id= sqlx::query!("SELECT monero_payment_id FROM monero_integrated_payment_ids WHERE payment_id = $1", payment.id).fetch_one(&db_pool).await?.monero_payment_id;
+    let monero_payment_id = sqlx::query!(
+        "SELECT monero_payment_id FROM monero_integrated_payment_ids WHERE payment_id = $1",
+        payment.id
+    )
+    .fetch_one(&db_pool)
+    .await?
+    .monero_payment_id;
     let expected_amount: u64 = payment.amount.parse()?; // already in piconer
+    println!(
+        "[Payment ID {}] Checking if the expect amount of {expected_amount} piconero was paid",
+        payment.id
+    );
     let body = serde_json::json!({
-    "jsonrpc": "2.0",
-    "id": "0",
-    "method": "get_payments",
-    "params": {
-      "payment_id": monero_payment_id
-    }
-  });
+      "jsonrpc": "2.0",
+      "id": "0",
+      "method": "get_payments",
+      "params": {
+        "payment_id": monero_payment_id
+      }
+    });
     let res: serde_json::Value = client
         .post(&payment_system_config.monero_wallet_rpc_url)
         .json(&body)
@@ -120,12 +136,16 @@ async fn check_monero_payment(
         .json()
         .await?;
 
-    let transfers = res["result"]["payments"].as_array().cloned().unwrap_or_default();
+    let transfers = res["result"]["payments"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    if transfers.len() > 0 {
+        println!("Received some transfers!! {transfers:#?}");
+    }
     let confirmed_received: u64 = transfers
         .iter()
-        .filter(|t| {
-            t["locked"].as_bool().unwrap_or(true) 
-        })
+        .filter(|t| t["locked"].as_bool().unwrap_or(true) != true)
         .map(|t| t["amount"].as_u64().unwrap_or(0))
         .sum();
 

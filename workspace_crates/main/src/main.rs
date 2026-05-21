@@ -1,6 +1,7 @@
 use main::poll_payments::poll_payments;
 use main::{ok_or_400, ok_or_err_400, some_or_400};
-use server::http_stuff::http_response::ContentType;
+use server::http_stuff::http_response::{ContentType, internal_server_error_500};
+use sqlx::postgres::types::PgInterval;
 use std::{path::PathBuf, str::FromStr};
 use tokio_util::sync::CancellationToken;
 #[tokio::main(flavor = "multi_thread")]
@@ -53,7 +54,7 @@ async fn main() -> anyhow::Result<()> {
                                 payment_system_config.clone()
                             )
                             .await,
-                            format!("Too mamny invoices active")
+                            format!("Too many invoices active")
                         );
                         let invoice_req = ok_or_400!(
                             serde_json::from_slice::<NewInvoiceRequest>(&request_data.body_bytes,),
@@ -63,20 +64,27 @@ async fn main() -> anyhow::Result<()> {
                             )
                         );
                         println!("Invoice: {invoice_req:#?}");
+                         let id = ok_or_400!(sqlx::query!("INSERT INTO payments (status_update_callback, success_callback, method, address, amount) VALUES($1, $2, $3, $4, $5) RETURNING id", invoice_req.status_update_callback,  invoice_req.success_callback,  invoice_req.method.to_string(), "to_do", invoice_req.amount_atomic.to_string()).fetch_one(&mut *tx).await, "sqlx error").id;
+
                         let gened_address = ok_or_400!(
                             dynamic_address_generation(
+                                id.clone(),
                                 &mut *tx,
                                 &payment_system_config.clone(),
                                 &invoice_req.method.clone()
-                            ).await, format!("Could not generate address for {}", invoice_req.method)
+                            )
+                            .await,
+                            format!("Could not generate address for {}", invoice_req.method)
                         );
                         let address = match gened_address {
-                            GeneratedAddress::Litecoin { index:_, address } => address,
-                            GeneratedAddress::Monero { payment_id: _, address } => address,
+                            GeneratedAddress::Litecoin { index: _, address } => address,
+                            GeneratedAddress::Monero {
+                                payment_id: _,
+                                address,
+                            } => address,
                         };
 
-                        let id = ok_or_400!(sqlx::query!("INSERT INTO payments (status_update_callback, success_callback, method, address, amount) VALUES($1, $2, $3, $4, $5) RETURNING id", invoice_req.status_update_callback,  invoice_req.success_callback,  invoice_req.method.to_string(), address.to_string(), invoice_req.amount_atomic.to_string()).fetch_one(&mut *tx).await, "sqlx error").id;
-                        ok_or_400!(tx.commit().await);
+                                               ok_or_400!(tx.commit().await);
                         let payment_info = PaymentInfo {
                             payment_id: PaymentId(id),
                             amount: Amount(invoice_req.amount_atomic),
@@ -96,6 +104,8 @@ async fn main() -> anyhow::Result<()> {
         db_pool.clone(),
         payment_system_config.clone(),
         poll_payments_token,
+        payment_system_config.clone().wait_between_each_payment_check_secs,
+        payment_system_config.clone().wait_between_each_payment_poll_iteration_secs,
     ));
     let _ = server::run(
         app_executable_version::get(),
@@ -113,19 +123,28 @@ async fn deny_if_too_many_active_invoices(
     tx: &mut Transaction<'_, Postgres>,
     payment_system_config: PaymentSystemConfig,
 ) -> Result<(), HttpResponseData> {
-    let interval = format!(
-        "{} minutes",
-        payment_system_config.active_invoice_minutes_since_creation
-    );
-
-    let count: i64 = ok_or_err_400!(
-        sqlx::query_scalar(
-            "SELECT COUNT(*) FROM invoice_payment_data WHERE created_at > NOW() - $1::interval"
-        )
-        .bind(&interval)
-        .fetch_one(&mut **tx)
-        .await
-    );
+    let interval = PgInterval {
+        months: 0,
+        days: 0,
+        microseconds: (payment_system_config.active_invoice_minutes_since_creation as i64)
+            * 60
+            * 1_000_000,
+    };
+    let count = match sqlx::query_scalar!(
+        "SELECT COUNT(*) FROM payments WHERE created_at > NOW() - $1::interval",
+        interval
+    )
+    .fetch_one(&mut **tx)
+    .await
+    .map_err(|e| {println!("{}", e.to_string()); internal_server_error_500()})?
+    {
+        Some(c) => c,
+        None => {
+            println!("Could get count");
+            return Err(internal_server_error_500());
+        }
+    };
+    println!("Counted {count} invoices");
     let count = ok_or_err_400!(u64::try_from(count));
     if count > payment_system_config.max_active_invoices {
         return Err(bad_request_400());
@@ -160,11 +179,10 @@ async fn validate_token(db_pool: PgPool, token_str: String) -> Result<(), TokenV
     Ok(())
 }
 
-use cryptocurrencies_stuff::{
-    derive_ltc::derive_ltc_bip84_address,
-};
+use cryptocurrencies_stuff::derive_ltc::derive_ltc_bip84_address;
 use payment_system_structs::{
-    Address, AddressIndex, Amount, NewInvoiceRequest, PaymentId, PaymentInfo, PaymentMethod, PaymentSystemConfig
+    Address, AddressIndex, Amount, NewInvoiceRequest, PaymentId, PaymentInfo, PaymentMethod,
+    PaymentSystemConfig,
 };
 use server::http_stuff::http_response::{Charset, HttpResponseData, bad_request_400, ok};
 use sqlx::{PgConnection, PgPool, Postgres, Transaction};
@@ -184,10 +202,11 @@ pub enum GeneratedAddress {
     Monero {
         payment_id: PaymentId,
         address: Address,
-    }
+    },
 }
 
 async fn dynamic_address_generation(
+    payment_id: String,
     conn: &mut PgConnection,
     psc: &PaymentSystemConfig,
     m: &PaymentMethod,
@@ -196,7 +215,7 @@ async fn dynamic_address_generation(
         "SELECT COUNT(*) FROM payments WHERE method = $1",
         m.to_string()
     )
-    .fetch_one(conn)
+    .fetch_one(&mut *conn)
     .await
     else {
         println!("Could not get count {}", m.to_string());
@@ -210,16 +229,24 @@ async fn dynamic_address_generation(
                 println!("Litecoin addr error");
                 return Err(format!("Couldn't derive litecoin"));
             };
-            Ok(GeneratedAddress::Litecoin { index: AddressIndex(index), address: Address(address) })
+            Ok(GeneratedAddress::Litecoin {
+                index: AddressIndex(index),
+                address: Address(address),
+            })
         }
         PaymentMethod::Monero => {
-            let (address, payment_id) = match get_monero_address_and_payment_id(&psc.monero_wallet_rpc_url).await {
-                Ok(a) => a,
-                Err(e) => {
-                    return Err(format!("Err '{e}' from monero subaddr gen"));
-                }
-            };
-            Ok(GeneratedAddress::Monero { payment_id, address, })
+            let (address, monero_payment_id) =
+                match get_monero_address_and_payment_id(&psc.monero_wallet_rpc_url).await {
+                    Ok(a) => a,
+                    Err(e) => {
+                        return Err(format!("Err '{e}' from monero subaddr gen"));
+                    }
+                };
+            sqlx::query!("INSERT INTO monero_integrated_payment_ids (payment_id, monero_payment_id) VALUES ($1, $2)", payment_id, monero_payment_id.to_string()).execute(conn).await.map_err(|e| e.to_string())?;
+            Ok(GeneratedAddress::Monero {
+                payment_id: monero_payment_id,
+                address,
+            })
         }
     }
 }
@@ -231,15 +258,15 @@ fn parse_path(path: &str) -> Option<(&str, &str)> {
     Some((prefix, method))
 }
 
-
-
-pub async fn get_monero_address_and_payment_id(rpc_url: &str) -> Result<(Address, PaymentId,), String> {
+pub async fn get_monero_address_and_payment_id(
+    rpc_url: &str,
+) -> Result<(Address, PaymentId), String> {
     let client = reqwest::Client::new();
 
     let body = serde_json::json!({"jsonrpc": "2.0",
-    "id": "0",
-    "method": "make_integrated_address"
-  });
+      "id": "0",
+      "method": "make_integrated_address"
+    });
 
     let resp = client
         .post(rpc_url)

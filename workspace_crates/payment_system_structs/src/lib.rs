@@ -4,6 +4,8 @@ use strum::EnumString;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct PaymentSystemConfig {
+    pub wait_between_each_payment_check_secs: u64,
+    pub wait_between_each_payment_poll_iteration_secs: u64,
     pub database_url: String,
     pub secret_prefix: String,
     pub monero_wallet_rpc_url: String,
@@ -15,7 +17,6 @@ pub struct PaymentSystemConfig {
     pub cf_bypass_token_header_name: String,
     pub cf_bypass_token_header_value: String,
 }
-
 
 pub struct Payment {
     pub primary_key: i64,
@@ -29,7 +30,6 @@ pub struct Payment {
     pub completed_at: Option<chrono::DateTime<chrono::Utc>>,
     pub sweeped_at: Option<chrono::DateTime<chrono::Utc>>,
 }
-
 
 #[derive(Clone, serde::Serialize, serde::Deserialize, EnumString, strum::Display, Debug)]
 #[strum(ascii_case_insensitive)]
