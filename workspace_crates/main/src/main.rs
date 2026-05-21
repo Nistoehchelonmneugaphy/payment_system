@@ -64,7 +64,7 @@ async fn main() -> anyhow::Result<()> {
                             )
                         );
                         println!("Invoice: {invoice_req:#?}");
-                         let id = ok_or_400!(sqlx::query!("INSERT INTO payments (status_update_callback, success_callback, method, address, amount) VALUES($1, $2, $3, $4, $5) RETURNING id", invoice_req.status_update_callback,  invoice_req.success_callback,  invoice_req.method.to_string(), "to_do", invoice_req.amount_atomic.to_string()).fetch_one(&mut *tx).await, "sqlx error").id;
+                        let id = ok_or_400!(sqlx::query!("INSERT INTO payments (status_update_callback, success_callback, method, address, amount) VALUES($1, $2, $3, $4, $5) RETURNING id", invoice_req.status_update_callback,  invoice_req.success_callback,  invoice_req.method.to_string(), "to_do", invoice_req.amount_atomic.to_string()).fetch_one(&mut *tx).await, "sqlx error").id;
 
                         let gened_address = ok_or_400!(
                             dynamic_address_generation(
@@ -83,8 +83,17 @@ async fn main() -> anyhow::Result<()> {
                                 address,
                             } => address,
                         };
+                        ok_or_400!(
+                            sqlx::query!(
+                                "UPDATE payments SET address = $1 WHERE id = $2",
+                                address.0,
+                                id
+                            )
+                            .execute(&mut *tx)
+                            .await
+                        );
 
-                                               ok_or_400!(tx.commit().await);
+                        ok_or_400!(tx.commit().await);
                         let payment_info = PaymentInfo {
                             payment_id: PaymentId(id),
                             amount: Amount(invoice_req.amount_atomic),
@@ -104,8 +113,12 @@ async fn main() -> anyhow::Result<()> {
         db_pool.clone(),
         payment_system_config.clone(),
         poll_payments_token,
-        payment_system_config.clone().wait_between_each_payment_check_secs,
-        payment_system_config.clone().wait_between_each_payment_poll_iteration_secs,
+        payment_system_config
+            .clone()
+            .wait_between_each_payment_check_secs,
+        payment_system_config
+            .clone()
+            .wait_between_each_payment_poll_iteration_secs,
     ));
     let _ = server::run(
         app_executable_version::get(),
@@ -136,8 +149,10 @@ async fn deny_if_too_many_active_invoices(
     )
     .fetch_one(&mut **tx)
     .await
-    .map_err(|e| {println!("{}", e.to_string()); internal_server_error_500()})?
-    {
+    .map_err(|e| {
+        println!("{}", e.to_string());
+        internal_server_error_500()
+    })? {
         Some(c) => c,
         None => {
             println!("Could get count");
