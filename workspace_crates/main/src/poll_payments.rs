@@ -71,7 +71,7 @@ pub async fn poll_payments(
                         };
 
                         let mut request = rpc.post(&payment.success_callback);
-                        println!("Sending success_callback, payment_id: {}", payment.id);
+                        println!("Sending success_callback {}, payment_id: {}", &payment.success_callback, payment.id);
                         request = request.body(format!("payment_id={}", payment.id));
                         for (key, value) in &headers.0 {
                             request = request.header(key, value);
@@ -159,14 +159,15 @@ async fn check_monero_payment(
         .await?
         .json()
         .await?;
-    let current_height = res_height["result"]["block_height"].as_u64().unwrap_or(0);
+    let current_height = res_height["result"]["height"].as_u64().unwrap_or(0);
     println!("Curr height: {current_height}");
     for transfer in transfers.clone() {
-        let height = transfer["height"].as_u64().unwrap_or(999999999);
-        if current_height < height {
-            println!("A transfer: to unlock: height: {}", height - current_height);
+        let height = transfer["block_height"].as_u64().unwrap_or(999999999);
+        println!("transfer height: {height}");
+        if height + 10 > current_height {
+            println!("A transfer: to unlock : {}", 10 -  (current_height - height ));
         } else {
-            println!("An unlock tx");
+            println!("An unlocked tx");
         }
     }
     if transfers.len() > 0 {
