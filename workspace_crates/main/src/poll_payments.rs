@@ -77,7 +77,12 @@ pub async fn poll_payments(
                             request = request.header(key, value);
                         }
 
-                        let _ = request.send().await;
+                        let resp =match request.send().await {
+                            Ok(resp) => resp,
+                            Err(_) => continue,
+                        };
+
+                        println!("Received resp after successful payment request: {}", resp.text().await.unwrap_or("None".to_string()));
                         let _ = tx.commit().await;
                     }
                 }
