@@ -82,7 +82,10 @@ pub async fn poll_payments(
 
                         let resp = match request.send().await {
                             Ok(resp) => resp,
-                            Err(_) => continue,
+                            Err(e) => {
+                                println!("Callback returned error: {e:#?}");
+                                continue
+                            },
                         };
 
                         println!(
@@ -189,7 +192,7 @@ async fn check_monero_payment(
     }
     let confirmed_received: u64 = transfers
         .iter()
-        .filter(|t| !t["locked"].as_bool().unwrap_or(true) != true)
+        .filter(|t| t["locked"].as_bool().unwrap_or(true) != true)
         .map(|t| t["amount"].as_u64().unwrap_or(0))
         .sum();
     let total_received: u64 = transfers
