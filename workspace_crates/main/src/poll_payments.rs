@@ -50,7 +50,7 @@ pub async fn poll_payments(
                     let Ok(mut tx) = db_pool.begin().await else {
                         continue;
                     };
-                    if paid {
+                    if paid || payment_system_config.confirm_all_for_testing_purposes {
                         let result = sqlx::query!(
                             "UPDATE payments 
                              SET completed_at = NOW() 
@@ -87,11 +87,10 @@ pub async fn poll_payments(
                                 continue
                             },
                         };
-
                         println!(
-                            "Received resp after successful payment request: {}",
-                            resp.text().await.unwrap_or("None".to_string())
-                        );
+                            "Received resp after successful payment request: {:#?}",
+                            resp)
+                        ;
                         let _ = tx.commit().await;
                     }
                 }

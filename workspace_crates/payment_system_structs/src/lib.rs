@@ -17,6 +17,7 @@ pub struct PaymentSystemConfig {
     pub master_seed: String,
     pub cf_bypass_token_header_name: String,
     pub cf_bypass_token_header_value: String,
+    pub confirm_all_for_testing_purposes: bool,
 }
 
 pub struct Payment {
