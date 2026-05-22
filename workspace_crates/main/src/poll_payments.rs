@@ -123,7 +123,7 @@ pub async fn poll_payments(
 
 pub enum CheckMoneroPaymentResult {
     NotPaid,
-    Paid { transaction_id: String },
+    Paid { unlocked_transaction_ids: Vec<String> },
 }
 async fn check_monero_payment(
     db_pool: sqlx::PgPool,
@@ -174,7 +174,15 @@ async fn check_monero_payment(
     const MONERO_FULL_CONFIRMATIONS: u64 = 10;
     let current_blockchain_height = res_height["result"]["height"].as_u64().unwrap_or(0);
     println!("Curr height: {current_blockchain_height}");
+    let mut unlocked_transaction_ids = Vec::new();
     for transfer in transfers.clone() {
+        let locked = transfer["locked"].as_bool().unwrap_or(true);
+        if !locked {
+            let tx_hash = transfer["tx_hash"].as_str().unwrap_or("erm_nothing?").to_string();
+            if tx_hash != "erm_nothing?" { 
+            unlocked_transaction_ids.push(tx_hash);
+            }
+        }
         let transaction_height = transfer["block_height"].as_u64().unwrap_or(999999999);
         println!("transfer height: {transaction_height}");
         let transaction_confirmation_at_block = transaction_height + MONERO_FULL_CONFIRMATIONS;
@@ -189,6 +197,7 @@ async fn check_monero_payment(
     if transfers.len() > 0 {
         println!("Received some transfers!! {transfers:#?}");
     }
+
     let confirmed_received: u64 = transfers
         .iter()
         .filter(|t| t["locked"].as_bool().unwrap_or(true) != true)
