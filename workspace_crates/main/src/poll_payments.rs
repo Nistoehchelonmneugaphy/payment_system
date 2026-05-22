@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use anyhow::Ok;
 use payment_system_structs::{Payment, PaymentId, PaymentSystemConfig};
 use reqwest::Client;
 use serde_json::json;
@@ -8,26 +9,35 @@ use tokio_util::sync::CancellationToken;
 
 use crate::fetch_callback_headers;
 
-pub async fn sweep_all(rpc_client: &Client, payment_system_config: &PaymentSystemConfig) {
-    let response = rpc_client
+pub async fn sweep_all(
+    rpc_client: &Client,
+    payment_system_config: &PaymentSystemConfig,
+) -> anyhow::Result<()> {
+    let body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": "0",
+        "method": "sweep_all",
+        "params": {
+            "address": &payment_system_config.monero_treasury_address,
+            "account_index": 0,
+            "subaddr_indices": [0],  // address index 0
+            "priority": 0,
+            "ring_size": 16,
+            "get_tx_keys": false,
+            "do_not_relay": false
+        }
+    });
+    let res: serde_json::Value = rpc_client
         .post(&payment_system_config.monero_wallet_rpc_url)
-        .json(&json!({
-            "jsonrpc": "2.0",
-            "id": "0",
-            "method": "sweep_all",
-            "params": {
-                "address": &payment_system_config.monero_treasury_address,
-                "account_index": 0,
-                "subaddr_indices": [0],  // address index 0
-                "priority": 0,
-                "ring_size": 16,
-                "get_tx_keys": false,
-                "do_not_relay": false
-            }
-        }))
+        .json(&body)
         .send()
-        .await;
-    println!("Called sweep_all()... response is: {response:#?}");
+        .await?
+        .json()
+        .await?;
+
+   
+    println!("Called sweep_all()... response is: {res:#?}");
+    Ok(())
 }
 
 pub async fn poll_payments(
