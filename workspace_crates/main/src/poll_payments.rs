@@ -71,18 +71,24 @@ pub async fn poll_payments(
                         };
 
                         let mut request = rpc.post(&payment.success_callback);
-                        println!("Sending success_callback {}, payment_id: {}", &payment.success_callback, payment.id);
+                        println!(
+                            "Sending success_callback {}, payment_id: {}",
+                            &payment.success_callback, payment.id
+                        );
                         request = request.body(format!("payment_id={}", payment.id));
                         for (key, value) in &headers.0 {
                             request = request.header(key, value);
                         }
 
-                        let resp =match request.send().await {
+                        let resp = match request.send().await {
                             Ok(resp) => resp,
                             Err(_) => continue,
                         };
 
-                        println!("Received resp after successful payment request: {}", resp.text().await.unwrap_or("None".to_string()));
+                        println!(
+                            "Received resp after successful payment request: {}",
+                            resp.text().await.unwrap_or("None".to_string())
+                        );
                         let _ = tx.commit().await;
                     }
                 }
@@ -113,6 +119,10 @@ pub async fn poll_payments(
     }
 }
 
+pub enum CheckMoneroPaymentResult {
+    NotPaid,
+    Paid { transaction_id: String },
+}
 async fn check_monero_payment(
     db_pool: sqlx::PgPool,
     payment: &Payment,
@@ -159,13 +169,17 @@ async fn check_monero_payment(
         .await?
         .json()
         .await?;
-    let current_height = res_height["result"]["height"].as_u64().unwrap_or(0);
-    println!("Curr height: {current_height}");
+    const MONERO_FULL_CONFIRMATIONS: u64 = 10;
+    let current_blockchain_height = res_height["result"]["height"].as_u64().unwrap_or(0);
+    println!("Curr height: {current_blockchain_height}");
     for transfer in transfers.clone() {
-        let height = transfer["block_height"].as_u64().unwrap_or(999999999);
-        println!("transfer height: {height}");
-        if height + 10 > current_height {
-            println!("A transfer: to unlock : {}", 10 -  (current_height - height ));
+        let transaction_height = transfer["block_height"].as_u64().unwrap_or(999999999);
+        println!("transfer height: {transaction_height}");
+        let transaction_confirmation_at_block = transaction_height + MONERO_FULL_CONFIRMATIONS;
+        if transaction_confirmation_at_block > current_blockchain_height {
+            let blocks_to_unlock =
+                transaction_confirmation_at_block - current_blockchain_height;
+            println!("A transfer received, blocks to unlock : {blocks_to_unlock}",);
         } else {
             println!("An unlocked tx");
         }
@@ -175,7 +189,7 @@ async fn check_monero_payment(
     }
     let confirmed_received: u64 = transfers
         .iter()
-        .filter(|t| t["locked"].as_bool().unwrap_or(true) != true)
+        .filter(|t| !t["locked"].as_bool().unwrap_or(true) != true)
         .map(|t| t["amount"].as_u64().unwrap_or(0))
         .sum();
     let total_received: u64 = transfers
@@ -187,8 +201,8 @@ async fn check_monero_payment(
     let complete = confirmed_received >= expected_amount;
 
     match complete {
-        false => println!("not enough"),
-        true => println!("yay, enough"),
+        false => println!("not enough confirmed"),
+        true => println!("yay, enough confirmed"),
     }
     Ok(confirmed_received >= expected_amount)
 }

@@ -9,6 +9,7 @@ pub struct PaymentSystemConfig {
     pub database_url: String,
     pub secret_prefix: String,
     pub monero_wallet_rpc_url: String,
+    pub monero_treasury_address: String,
     pub monero_confirmations: u64,
     // limit monitoring load
     pub max_active_invoices: u64,
