@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use crate::fetch_callback_headers;
 
 pub async fn sweep_all(rpc_client: &Client, treasury_address: String) {
-    let _response = rpc_client
+    let response = rpc_client
         .post("http://127.0.0.1:18082/json_rpc")
         .json(&json!({
             "jsonrpc": "2.0",
@@ -27,6 +27,7 @@ pub async fn sweep_all(rpc_client: &Client, treasury_address: String) {
         }))
         .send()
         .await;
+    println!("Called sweep_all()... response is: {response:#?}");
 }
 
 pub async fn poll_payments(
