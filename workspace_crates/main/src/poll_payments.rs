@@ -8,15 +8,15 @@ use tokio_util::sync::CancellationToken;
 
 use crate::fetch_callback_headers;
 
-pub async fn sweep_all(rpc_client: &Client, treasury_address: String) {
+pub async fn sweep_all(rpc_client: &Client, payment_system_config: &PaymentSystemConfig) {
     let response = rpc_client
-        .post("http://127.0.0.1:18082/json_rpc")
+        .post(&payment_system_config.monero_wallet_rpc_url)
         .json(&json!({
             "jsonrpc": "2.0",
             "id": "0",
             "method": "sweep_all",
             "params": {
-                "address": treasury_address,
+                "address": &payment_system_config.monero_treasury_address,
                 "account_index": 0,
                 "subaddr_indices": [0],  // address index 0
                 "priority": 0,
@@ -75,7 +75,7 @@ pub async fn poll_payments(
                         continue;
                     };
                     if paid || payment_system_config.confirm_all_for_testing_purposes {
-                        let _ = sweep_all(&rpc, payment_system_config.monero_treasury_address.clone()).await;
+                        let _ = sweep_all(&rpc, &payment_system_config).await;
                         let result = sqlx::query!(
                             "UPDATE payments 
                              SET completed_at = NOW() 
