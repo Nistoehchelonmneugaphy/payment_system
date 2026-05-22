@@ -21,7 +21,7 @@ pub async fn sweep_all(rpc_client: &Client, treasury_address: String) {
                 "subaddr_indices": [0],  // address index 0
                 "priority": 0,
                 "ring_size": 16,
-                "get_tx_keys": true,
+                "get_tx_keys": false,
                 "do_not_relay": false
             }
         }))
