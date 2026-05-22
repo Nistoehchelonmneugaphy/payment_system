@@ -1,10 +1,33 @@
 use std::time::Duration;
 
 use payment_system_structs::{Payment, PaymentId, PaymentSystemConfig};
+use reqwest::Client;
+use serde_json::json;
 use sqlx::postgres::types::PgInterval;
 use tokio_util::sync::CancellationToken;
 
 use crate::fetch_callback_headers;
+
+pub async fn sweep_all(rpc_client: &Client, treasury_address: String) {
+    let _response = rpc_client
+        .post("http://127.0.0.1:18082/json_rpc")
+        .json(&json!({
+            "jsonrpc": "2.0",
+            "id": "0",
+            "method": "sweep_all",
+            "params": {
+                "address": treasury_address,
+                "account_index": 0,
+                "subaddr_indices": [0],  // address index 0
+                "priority": 0,
+                "ring_size": 16,
+                "get_tx_keys": true,
+                "do_not_relay": false
+            }
+        }))
+        .send()
+        .await;
+}
 
 pub async fn poll_payments(
     db_pool: sqlx::PgPool,
@@ -51,6 +74,7 @@ pub async fn poll_payments(
                         continue;
                     };
                     if paid || payment_system_config.confirm_all_for_testing_purposes {
+                        let _ = sweep_all(&rpc, payment_system_config.monero_treasury_address.clone()).await;
                         let result = sqlx::query!(
                             "UPDATE payments 
                              SET completed_at = NOW() 
@@ -84,13 +108,13 @@ pub async fn poll_payments(
                             Ok(resp) => resp,
                             Err(e) => {
                                 println!("Callback returned error: {e:#?}");
-                                continue
-                            },
+                                continue;
+                            }
                         };
                         println!(
                             "Received resp after successful payment request: {:#?}",
-                            resp)
-                        ;
+                            resp
+                        );
                         let _ = tx.commit().await;
                     }
                 }
@@ -123,7 +147,9 @@ pub async fn poll_payments(
 
 pub enum CheckMoneroPaymentResult {
     NotPaid,
-    Paid { unlocked_transaction_ids: Vec<String> },
+    Paid {
+        unlocked_transaction_ids: Vec<String>,
+    },
 }
 async fn check_monero_payment(
     db_pool: sqlx::PgPool,
@@ -178,17 +204,19 @@ async fn check_monero_payment(
     for transfer in transfers.clone() {
         let locked = transfer["locked"].as_bool().unwrap_or(true);
         if !locked {
-            let tx_hash = transfer["tx_hash"].as_str().unwrap_or("erm_nothing?").to_string();
-            if tx_hash != "erm_nothing?" { 
-            unlocked_transaction_ids.push(tx_hash);
+            let tx_hash = transfer["tx_hash"]
+                .as_str()
+                .unwrap_or("erm_nothing?")
+                .to_string();
+            if tx_hash != "erm_nothing?" {
+                unlocked_transaction_ids.push(tx_hash);
             }
         }
         let transaction_height = transfer["block_height"].as_u64().unwrap_or(999999999);
         println!("transfer height: {transaction_height}");
         let transaction_confirmation_at_block = transaction_height + MONERO_FULL_CONFIRMATIONS;
         if transaction_confirmation_at_block > current_blockchain_height {
-            let blocks_to_unlock =
-                transaction_confirmation_at_block - current_blockchain_height;
+            let blocks_to_unlock = transaction_confirmation_at_block - current_blockchain_height;
             println!("A transfer received, blocks to unlock : {blocks_to_unlock}",);
         } else {
             println!("An unlocked tx");
