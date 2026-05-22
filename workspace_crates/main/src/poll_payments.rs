@@ -1,9 +1,7 @@
 use std::time::Duration;
 
-use anyhow::Ok;
 use payment_system_structs::{Payment, PaymentId, PaymentSystemConfig};
 use reqwest::Client;
-use serde_json::json;
 use sqlx::postgres::types::PgInterval;
 use tokio_util::sync::CancellationToken;
 
@@ -37,7 +35,7 @@ pub async fn sweep_all(
 
    
     println!("Called sweep_all()... response is: {res:#?}");
-    Ok(())
+    anyhow::Ok(())
 }
 
 pub async fn poll_payments(
