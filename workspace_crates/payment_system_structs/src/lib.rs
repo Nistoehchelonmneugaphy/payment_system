@@ -4,6 +4,9 @@ use strum::EnumString;
 
 #[derive(Debug, Clone, serde::Deserialize)]
 pub struct PaymentSystemConfig {
+    pub ip: String,
+    pub port: u64,
+    pub rust_log_directory_path: String,
     pub wait_between_each_payment_check_secs: u64,
     pub wait_between_each_payment_poll_iteration_secs: u64,
     pub database_url: String,

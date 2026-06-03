@@ -1,6 +1,7 @@
 use main::poll_payments::poll_payments;
 use main::{ok_or_400, ok_or_err_400, some_or_400};
 use server::http_stuff::http_response::{ContentType, internal_server_error_500};
+use server::server_config::ServerConfig;
 use sqlx::postgres::types::PgInterval;
 use std::{path::PathBuf, str::FromStr};
 use tokio_util::sync::CancellationToken;
@@ -123,7 +124,9 @@ async fn main() -> anyhow::Result<()> {
             .clone()
             .wait_between_each_payment_poll_iteration_secs,
     ));
+    let server_config = ServerConfig::new(payment_system_config.ip.clone(), payment_system_config.port, payment_system_config.rust_log_directory_path);
     let _ = server::run(
+        server_config,
         app_executable_version::get(),
         handler,
         server::run::BackgroundSpawnTasks {
