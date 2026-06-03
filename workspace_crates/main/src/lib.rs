@@ -20,3 +20,4 @@ async fn fetch_callback_headers(
     let map = rows.into_iter().map(|r| (r.key, r.value)).collect();
     Ok(CallbackHeaders(map))
 }
+
