@@ -19,7 +19,10 @@ async fn main() -> anyhow::Result<()> {
         .expect("I expected pool construction to succeed :)");
     let db_pool_clone_for_handler = db_pool.clone();
     let payment_system_config_clone_for_handler = payment_system_config.clone();
+    
     let handler = Router { db_pool: db_pool_clone_for_handler, payment_system_config: payment_system_config_clone_for_handler }.into_handler_fn();
+
+
     let poll_payments_task = Box::pin(poll_payments(
         db_pool.clone(),
         payment_system_config.clone(),
