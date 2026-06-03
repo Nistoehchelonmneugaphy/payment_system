@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
         .expect("I expected pool construction to succeed :)");
     let db_pool_clone_for_handler = db_pool.clone();
     let payment_system_config_clone_for_handler = payment_system_config.clone();
-    let handler = MyHandler { db_pool: db_pool_clone_for_handler, payment_system_config: payment_system_config_clone_for_handler }.into_handler_fn();
+    let handler = Router { db_pool: db_pool_clone_for_handler, payment_system_config: payment_system_config_clone_for_handler }.into_handler_fn();
     let poll_payments_task = Box::pin(poll_payments(
         db_pool.clone(),
         payment_system_config.clone(),
@@ -223,12 +223,12 @@ pub async fn get_monero_address_and_payment_id(
 }
 
 #[derive(Clone)]
-pub struct MyHandler {
+pub struct Router {
     db_pool: Pool<Postgres>,
     payment_system_config: PaymentSystemConfig,
 }
 
-impl MyHandler {
+impl Router {
     pub async fn handle(
         &self,
         request_data: HttpRequestData,
