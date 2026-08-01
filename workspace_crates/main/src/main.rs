@@ -1,9 +1,9 @@
 use main::poll_payments::poll_payments;
 use main::{ok_or_400, ok_or_err_400, some_or_400};
-use server::HandlerFn;
 use server::http_stuff::http_request_parsing::HttpRequestData;
 use server::http_stuff::http_response::{ContentType, internal_server_error_500};
 use server::server_config::ServerConfig;
+use server::{HandlerFn, ServerBuilder};
 use sqlx::postgres::types::PgInterval;
 use std::{path::PathBuf, str::FromStr};
 use tokio_util::sync::CancellationToken;
@@ -19,9 +19,12 @@ async fn main() -> anyhow::Result<()> {
         .expect("I expected pool construction to succeed :)");
     let db_pool_clone_for_handler = db_pool.clone();
     let payment_system_config_clone_for_handler = payment_system_config.clone();
-    
-    let handler = Router { db_pool: db_pool_clone_for_handler, payment_system_config: payment_system_config_clone_for_handler }.into_handler_fn();
 
+    let handler = Router {
+        db_pool: db_pool_clone_for_handler,
+        payment_system_config: payment_system_config_clone_for_handler,
+    }
+    .into_handler_fn();
 
     let poll_payments_task = Box::pin(poll_payments(
         db_pool.clone(),
@@ -39,17 +42,11 @@ async fn main() -> anyhow::Result<()> {
         payment_system_config.port,
         payment_system_config.rust_log_directory_path,
     );
-    let _ = server::run(
-        server_config,
-        app_executable_version::get(),
-        handler,
-        server::run::BackgroundSpawnTasks {
-            new_tasks_to_spawn: Some(vec![poll_payments_task]),
-            cancellation_token: Some(cancellation_token),
-        },
-    )
-    .await;
 
+    let _ = ServerBuilder::new(server_config, app_executable_version::get(), handler)
+        .add_background_tasks(vec![poll_payments_task], cancellation_token)
+        .run_handler_and_background_tasks()
+        .await;
 
     Ok(())
 }
