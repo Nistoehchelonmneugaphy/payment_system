@@ -14,7 +14,7 @@ async fn fetch_callback_headers(
     .fetch_all(conn)
     .await
     else {
-        return Err(format!("DB err"));
+        return Err("DB err".to_string());
     };
 
     let map = rows.into_iter().map(|r| (r.key, r.value)).collect();

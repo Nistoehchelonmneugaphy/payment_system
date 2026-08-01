@@ -98,7 +98,7 @@ pub async fn poll_payments(
                             continue;
                         }
                         let Ok(headers) =
-                            fetch_callback_headers(&mut *tx, PaymentId(payment.id.clone())).await
+                            fetch_callback_headers(&mut tx, PaymentId(payment.id.clone())).await
                         else {
                             continue;
                         };
@@ -106,7 +106,7 @@ pub async fn poll_payments(
                         let mut request = rpc.post(&payment.success_callback);
                         println!(
                             "Sending success_callback {}, payment_id: {}",
-                            &payment.success_callback, payment.id
+                            payment.success_callback, payment.id
                         );
                         request = request.body(format!("payment_id={}", payment.id));
                         for (key, value) in &headers.0 {
@@ -231,13 +231,13 @@ async fn check_monero_payment(
             println!("An unlocked tx");
         }
     }
-    if transfers.len() > 0 {
+     if !transfers.is_empty() {
         println!("Received some transfers!! {transfers:#?}");
     }
 
     let confirmed_received: u64 = transfers
         .iter()
-        .filter(|t| t["locked"].as_bool().unwrap_or(true) != true)
+        .filter(|t| !t["locked"].as_bool().unwrap_or(true))
         .map(|t| t["amount"].as_u64().unwrap_or(0))
         .sum();
     let total_received: u64 = transfers

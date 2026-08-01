@@ -70,7 +70,7 @@ async fn deny_if_too_many_active_invoices(
     .fetch_one(&mut **tx)
     .await
     .map_err(|e| {
-        println!("{}", e.to_string());
+        println!("{}", e);
         internal_server_error_500()
     })? {
         Some(c) => c,
@@ -153,8 +153,8 @@ async fn dynamic_address_generation(
     .fetch_one(&mut *conn)
     .await
     else {
-        println!("Could not get count {}", m.to_string());
-        return Err(format!("..."));
+        println!("Could not get count {}", m);
+        return Err("...".to_string());
     };
 
     let index = index as u64;
@@ -162,7 +162,7 @@ async fn dynamic_address_generation(
         PaymentMethod::Litecoin => {
             let Ok(address) = derive_ltc_bip84_address(&psc.master_seed, index) else {
                 println!("Litecoin addr error");
-                return Err(format!("Couldn't derive litecoin"));
+                return Err("Couldn't derive litecoin".to_string());
             };
             Ok(GeneratedAddress::Litecoin {
                 index: AddressIndex(index),
@@ -286,7 +286,7 @@ impl Router {
                 let gened_address = ok_or_400!(
                     dynamic_address_generation(
                         id.clone(),
-                        &mut *tx,
+                        &mut tx,
                         &payment_system_config.clone(),
                         &invoice_req.method.clone()
                     )
@@ -319,9 +319,9 @@ impl Router {
                 };
                 println!("{payment_info:#?}");
                 let content = ok_or_400!(serde_json::to_vec(&payment_info));
-                return ok(content, ContentType::ApplicationJson, Some(Charset::Utf8));
+                ok(content, ContentType::ApplicationJson, Some(Charset::Utf8))
             }
-        };
+        }
     }
 
     pub fn into_handler_fn(self) -> HandlerFn {
